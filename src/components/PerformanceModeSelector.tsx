@@ -22,6 +22,7 @@ const MODES: Array<{
   { key: "silence",            icon: "🔇", labelKey: "silence",            descKey: "silence",            detailKey: "silence" },
   { key: "balance",            icon: "⚖️", labelKey: "balance",            descKey: "balance",            detailKey: "balance" },
   { key: "turbo",              icon: "⚡", labelKey: "turbo",              descKey: "turbo",              detailKey: "turbo" },
+  { key: "decepticon",         icon: "💥", labelKey: "decepticon",         descKey: "decepticon",         detailKey: "decepticon" },
   { key: "smart",              icon: "🧠", labelKey: "smart",              descKey: "smart",              detailKey: "smart",              requiresAi: true },
   { key: "long_battery",       icon: "🍃", labelKey: "longBattery",        descKey: "longBattery",        detailKey: "longBattery" },
   { key: "smart_acceleration", icon: "🚀", labelKey: "smartAcceleration",  descKey: "smartAcceleration",  detailKey: "smartAcceleration",  requiresAi: true },
