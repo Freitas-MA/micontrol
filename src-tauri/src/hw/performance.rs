@@ -21,7 +21,7 @@ use {
             },
             System::{
                 IO::DeviceIoControl,
-                Registry::{RegCloseKey, RegOpenKeyExW, RegSetValueExW, HKEY_LOCAL_MACHINE, KEY_WRITE, REG_DWORD},
+                Registry::{RegCloseKey, RegCreateKeyExW, RegOpenKeyExW, RegSetValueExW, HKEY_LOCAL_MACHINE, KEY_WRITE, REG_CREATE_KEY_DISPOSITION, REG_DWORD, REG_OPTION_NON_VOLATILE},
             },
         },
     },
@@ -168,9 +168,9 @@ fn read_mi_registry_mode() -> Option<PerformanceMode> {
 const OVERLAY_REG_KEY: &str =
     r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes";
 
-const GUID_BEST_POWER_EFFICIENCY: &str = "{961cc777-2547-4f9d-8174-7d86181b8a7a}";
-const GUID_BALANCED:              &str = "{3af9b8d9-7c97-431d-ad78-34a8bfea439f}";
-const GUID_BEST_PERFORMANCE:      &str = "{ded574b5-45a0-4f42-8737-46345c09c238}";
+const GUID_BEST_POWER_EFFICIENCY: &str = "961cc777-2547-4f9d-8174-7d86181b8a7a";
+const GUID_BALANCED:              &str = "3af9b8d9-7c97-431d-ad78-34a8bfea439f";
+const GUID_BEST_PERFORMANCE:      &str = "ded574b5-45a0-4f42-8737-46345c09c238";
 
 #[cfg(windows)]
 fn read_windows_power_overlay() -> Option<PerformanceMode> {
@@ -325,13 +325,19 @@ fn persist_to_registry(mode: PerformanceMode) -> Result<()> {
         unsafe {
             let key_w: Vec<u16> = OsStr::new(PERF_REG_KEY).encode_wide().chain(Some(0)).collect();
             let mut hkey = std::mem::zeroed();
-            RegOpenKeyExW(
+            let mut disposition = REG_CREATE_KEY_DISPOSITION::default();
+            // Use RegCreateKeyExW so the key is created if it does not yet exist
+            RegCreateKeyExW(
                 HKEY_LOCAL_MACHINE,
                 PCWSTR(key_w.as_ptr()),
                 0,
+                None,
+                REG_OPTION_NON_VOLATILE,
                 KEY_WRITE,
+                None,
                 &mut hkey,
-            ).ok().context("Open HKLM\\SOFTWARE\\MI\\PerformanceMode")?;
+                Some(&mut disposition),
+            ).ok().context("Create/open HKLM\\SOFTWARE\\MI\\PerformanceMode")?;
 
             let val_w: Vec<u16> = OsStr::new(PERF_REG_VALUE).encode_wide().chain(Some(0)).collect();
             let hw_val = mode.to_hw_value();

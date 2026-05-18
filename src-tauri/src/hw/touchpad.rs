@@ -61,10 +61,23 @@ static GESTURE_SCREENSHOT_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Whether the left/right edge slide gesture is currently enabled.
 #[cfg(windows)]
 static EDGE_SLIDE_ENABLED: AtomicBool = AtomicBool::new(false);
-
+/// True while an edge-slide gesture is actively tracking a contact.
+/// Used by the WH_MOUSE_LL hook proc to suppress cursor movement without
+/// accessing the thread-local RefCell (which may be mutably borrowed).
+#[cfg(windows)]
+static EDGE_GESTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Prevents the Raw Input listener thread from being started more than once.
 #[cfg(windows)]
 static GESTURE_THREAD_STARTED: AtomicBool = AtomicBool::new(false);
+
+/// App handle stored at startup so the gesture thread can emit Tauri events
+/// (e.g. show the brightness OSD) without needing a channel or mutex.
+static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Called once during app setup to give the gesture thread access to Tauri.
+pub fn set_app_handle(h: tauri::AppHandle) {
+    let _ = APP_HANDLE.set(h);
+}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -357,6 +370,25 @@ unsafe fn win_gesture_loop() {
         log::info!("[gesture] Raw Input gesture listener active");
     }
 
+    // Install a low-level mouse hook to suppress WM_MOUSEMOVE while an edge
+    // gesture is active.  The hook proc runs on this thread (message loop) so
+    // it can safely read the thread-local GESTURE_STATE.
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowsHookExW, WINDOWS_HOOK_ID};
+        match SetWindowsHookExW(
+            WINDOWS_HOOK_ID(14), // WH_MOUSE_LL
+            Some(mouse_hook_proc),
+            HINSTANCE::default(),
+            0,
+        ) {
+            Ok(_hook) => {
+                log::info!("[gesture] Mouse hook installed — cursor suppressed during edge gestures");
+                let _ = _hook;
+            }
+            Err(e) => log::warn!("[gesture] Failed to install mouse hook: {e}"),
+        }
+    }
+
     // Message pump — WM_INPUT messages are delivered here.
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -380,6 +412,31 @@ unsafe extern "system" fn gesture_wnd_proc(
         process_raw_input(lparam.0);
     }
     DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+/// Low-level mouse hook proc — blocks WM_MOUSEMOVE while an edge gesture is
+/// active so the cursor does not drift while the user swipes the edge zone.
+///
+/// This runs on the gesture thread (it was installed there), so reading the
+/// thread-local GESTURE_STATE is safe.
+#[cfg(windows)]
+unsafe extern "system" fn mouse_hook_proc(
+    code: i32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::LRESULT;
+    use windows::Win32::UI::WindowsAndMessaging::{CallNextHookEx, WM_MOUSEMOVE};
+
+    if code >= 0 && wparam.0 as u32 == WM_MOUSEMOVE {
+        // Use the dedicated atomic — avoids touching the RefCell which may
+        // already be mutably borrowed on this thread (gesture loop).
+        let suppress = EDGE_GESTURE_ACTIVE.load(Ordering::Relaxed);
+        if suppress {
+            return LRESULT(1); // swallow the event
+        }
+    }
+    CallNextHookEx(None, code, wparam, lparam)
 }
 
 // ─── Gesture state (gesture thread — thread-local) ────────────────────────────
@@ -446,8 +503,8 @@ thread_local! {
 #[cfg(windows)]
 unsafe fn process_raw_input(lparam: isize) {
     use windows::Win32::Devices::HumanInterfaceDevice::{
-        HidP_GetSpecificValueCaps, HidP_GetUsageValue, HidP_Input, HIDP_VALUE_CAPS,
-        PHIDP_PREPARSED_DATA,
+        HidP_GetSpecificValueCaps, HidP_GetUsageValue, HidP_GetUsages, HidP_Input,
+        HIDP_VALUE_CAPS, PHIDP_PREPARSED_DATA,
     };
     use windows::Win32::UI::Input::{
         GetRawInputData, GetRawInputDeviceInfoW, HRAWINPUT, RAWINPUT, RAWINPUTHEADER,
@@ -592,66 +649,96 @@ unsafe fn process_raw_input(lparam: isize) {
     );
 
     // ── Read first contact X and Y (per-contact link collections 1..=5) ──────
-    // X/Y are in Generic Desktop usage page (0x0001), not Digitizer (0x000D)
+    // X/Y are in Generic Desktop usage page (0x0001), not Digitizer (0x000D).
+    // Both coordinates must come from the *same* link collection to avoid
+    // mismatched X from LC-1 and Y from LC-2 when contacts shuffle.
+    let mut first_lc: u16 = 0;
     let mut first_x: u32 = 0;
     let mut first_y: u32 = 0;
     for lc in 1u16..=5 {
-        let r = HidP_GetUsageValue(
-            HidP_Input,
-            0x0001,
-            lc,
-            0x0030, // X
-            &mut first_x,
-            preparsed,
-            report,
-        );
-        if r.is_ok() && first_x > 0 {
-            break;
-        }
-    }
-    for lc in 1u16..=5 {
-        let r = HidP_GetUsageValue(
-            HidP_Input,
-            0x0001,
-            lc,
-            0x0031, // Y
-            &mut first_y,
-            preparsed,
-            report,
-        );
-        if r.is_ok() && first_y > 0 {
+        let mut x_val: u32 = 0;
+        let mut y_val: u32 = 0;
+        let rx = HidP_GetUsageValue(HidP_Input, 0x0001, lc, 0x0030, &mut x_val, preparsed, report);
+        let ry = HidP_GetUsageValue(HidP_Input, 0x0001, lc, 0x0031, &mut y_val, preparsed, report);
+        if rx.is_ok() && ry.is_ok() && x_val > 0 && y_val > 0 {
+            first_lc = lc;
+            first_x  = x_val;
+            first_y  = y_val;
             break;
         }
     }
 
-    // ── Feed gesture state machine ────────────────────────────────────────────
-    if GESTURE_SCREENSHOT_ENABLED.load(Ordering::Relaxed) {
-        GESTURE_STATE.with(|state| {
-            handle_five_finger_gesture(&mut state.borrow_mut(), contact_count);
-        });
+    // ── Read TipSwitch (0x42) for the active contact's link collection ────────
+    // HidP_GetUsages returns the list of active button usages on the Digitizer
+    // page for the given LC. TipSwitch (0x42) being in the list means the
+    // finger is physically touching the pad; its absence means the finger has
+    // lifted (even when contact_count still shows 1 due to BLTP7853 quirks).
+    let mut tip_switch = false;
+    if first_lc > 0 {
+        let mut usage_buf = [0u16; 8]; // 8 slots >> max PTP buttons per contact
+        let mut usage_len: u32 = usage_buf.len() as u32;
+        // HidP_GetUsages needs &mut [u8]; clone report bytes (small, ~10-40 B)
+        let mut report_mut = report.to_vec();
+        let r = HidP_GetUsages(
+            HidP_Input,
+            0x000D, // Digitizer page — where TipSwitch and Confidence live
+            first_lc,
+            usage_buf.as_mut_ptr(),
+            &mut usage_len,
+            preparsed,
+            &mut report_mut,
+        );
+        if r.is_ok() {
+            let n = usage_len.min(8) as usize;
+            tip_switch = usage_buf[..n].contains(&0x0042); // TipSwitch
+        }
     }
-    if EDGE_SLIDE_ENABLED.load(Ordering::Relaxed) {
+
+    // ── Feed gesture state machine ────────────────────────────────────────────
+    // Each handler returns a value describing the action to perform so that
+    // simulate_* calls happen OUTSIDE the GESTURE_STATE borrow.  This prevents
+    // a double-borrow panic when simulate_brightness_*() dispatches COM messages
+    // on this thread (WMI internally pumps the message queue), which would
+    // otherwise re-enter the gesture loop while borrow_mut() is still held.
+    let fire_screenshot = GESTURE_SCREENSHOT_ENABLED.load(Ordering::Relaxed)
+        && GESTURE_STATE.with(|state| {
+            handle_five_finger_gesture(&mut state.borrow_mut(), contact_count)
+        });
+
+    // (brightness_steps, volume_steps) — positive = up, negative = down
+    let (brightness_steps, volume_steps) = if EDGE_SLIDE_ENABLED.load(Ordering::Relaxed) {
         GESTURE_STATE.with(|state| {
             handle_edge_slide(
                 &mut state.borrow_mut(),
                 contact_count,
                 first_x as i32,
                 first_y as i32,
-            );
-        });
-    }
+                tip_switch,
+            )
+        })
+    } else {
+        (0, 0)
+    };
+
+    // ── Execute actions — borrow fully released here ───────────────────────────
+    if fire_screenshot { simulate_win_shift_s(); }
+    for _ in 0..brightness_steps       { simulate_brightness_up();   }
+    for _ in 0..(-brightness_steps)    { simulate_brightness_down(); }
+    for _ in 0..volume_steps           { simulate_volume_up();        }
+    for _ in 0..(-volume_steps)        { simulate_volume_down();      }
 }
 
 // ─── Gesture handlers ─────────────────────────────────────────────────────────
 
 /// 5+ fingers held for ≥ 300 ms → Win+Shift+S. 3-second cooldown.
+/// Returns true when the screenshot action should fire.
 #[cfg(windows)]
-fn handle_five_finger_gesture(state: &mut GestureState, contact_count: u32) {
+fn handle_five_finger_gesture(state: &mut GestureState, contact_count: u32) -> bool {
     use std::time::{Duration, Instant};
 
     if let Some(cd) = state.screenshot_cooldown {
         if cd.elapsed() < Duration::from_secs(3) {
-            return;
+            return false;
         }
         state.screenshot_cooldown = None;
     }
@@ -663,46 +750,58 @@ fn handle_five_finger_gesture(state: &mut GestureState, contact_count: u32) {
             }
             Some(start) if start.elapsed() >= Duration::from_millis(300) => {
                 log::info!("[gesture] 5-finger gesture → Win+Shift+S");
-                simulate_win_shift_s();
                 state.screenshot_cooldown = Some(Instant::now());
                 state.five_start = None;
+                return true;
             }
             Some(_) => {}
         }
     } else {
         state.five_start = None;
     }
+    false
 }
 
 /// Single-finger vertical swipe in the left (brightness) or right (volume)
 /// edge zone triggers one action per step of Y movement.
+/// Returns `(brightness_steps, volume_steps)` — positive = up, negative = down.
+/// The caller must invoke simulate_* AFTER this function returns so that the
+/// GESTURE_STATE borrow is fully released before any COM/WMI call.
 #[cfg(windows)]
 fn handle_edge_slide(
     state: &mut GestureState,
     contact_count: u32,
     x: i32,
     y: i32,
-) {
+    tip_switch: bool,
+) -> (i32, i32) {
     // Allow up to 5 consecutive frames of lost contact before resetting.
-    // This handles brief palm-rejection / tracking-lost artefacts that would
-    // otherwise reset the gesture mid-swipe and cause direction reversals.
     const GRACE_FRAMES: u8 = 5;
 
-    if contact_count != 1 {
+    // Treat both a missing contact and a lifted finger (TipSwitch=0) as
+    // "no valid contact".  The BLTP7853 sometimes reports contact_count=1
+    // even after the finger has lifted; TipSwitch catches that case.
+    let no_contact = contact_count != 1 || !tip_switch;
+
+    if no_contact {
         match &mut state.edge {
             Some(edge) => {
                 edge.lost_frames += 1;
                 if edge.lost_frames > GRACE_FRAMES {
                     state.edge = None;
+                    EDGE_GESTURE_ACTIVE.store(false, Ordering::Relaxed);
                 }
             }
             None => {}
         }
-        return;
+        return (0, 0);
     }
 
     let edge_thresh = state.x_max / 8;         // 12.5% of width
-    let y_step = (state.y_max / 10).max(1);    // 10% of height per action (less jitter-prone)
+    let y_step      = (state.y_max / 10).max(1); // 10% of height per action
+    // A Y jump larger than this in one frame means a new finger was placed
+    // (the touchpad sent no intermediate contact_count=0 report).
+    let jump_thresh = state.y_max * 15 / 100;   // 15% of height
 
     match &mut state.edge {
         None => {
@@ -714,30 +813,77 @@ fn handle_edge_slide(
                 None
             };
             if let Some(side) = side {
-                log::info!("[gesture] edge-slide started: side={} x={}/{} y={}", match side { EdgeSide::Left => "left", EdgeSide::Right => "right" }, x, state.x_max, y);
+                log::info!("[gesture] edge-slide started: side={} x={}/{} y={}",
+                    match side { EdgeSide::Left => "left", EdgeSide::Right => "right" },
+                    x, state.x_max, y);
+                EDGE_GESTURE_ACTIVE.store(true, Ordering::Relaxed);
                 state.edge = Some(EdgeSlideState { side, last_y: y, accum: 0, lost_frames: 0 });
             }
+            (0, 0)
         }
         Some(edge) => {
-            edge.lost_frames = 0; // contact restored
+            // ── X-zone validation (FIRST check) ────────────────────────────────────────
+            // Gesture continuation zone is 33% from the edge — wider than the
+            // 12.5% initiation zone so normal finger drift doesn't kill the
+            // gesture, but a new finger placed in the center terminates it.
+            // This is the primary fix for the "stuck gesture" bug: when the
+            // BLTP7853 skips the contact_count=0 frame between two touches, a
+            // new contact in the center was silently continuing the edge swipe.
+            let in_zone = match edge.side {
+                EdgeSide::Left  => x < state.x_max / 3,
+                EdgeSide::Right => x > state.x_max * 2 / 3,
+            };
+            if !in_zone {
+                log::info!(
+                    "[gesture] edge-slide ended: x={}/{} left edge zone ({} side)",
+                    x, state.x_max,
+                    match edge.side { EdgeSide::Left => "left", EdgeSide::Right => "right" },
+                );
+                state.edge = None;
+                EDGE_GESTURE_ACTIVE.store(false, Ordering::Relaxed);
+                return (0, 0);
+            }
+
+            // Contact just restored after a brief tracking loss — re-anchor.
+            if edge.lost_frames > 0 {
+                edge.last_y = y;
+                edge.lost_frames = 0;
+                return (0, 0);
+            }
+
             let dy = edge.last_y - y; // positive = upward swipe
+
+            // Large position jump → new finger placed without a contact_count=0 gap.
+            // Re-anchor instead of calculating a bogus huge delta.
+            if dy.abs() > jump_thresh {
+                log::debug!("[gesture] edge-slide position jump ({dy}), re-anchoring at y={y}");
+                edge.last_y = y;
+                edge.accum  = 0;
+                return (0, 0);
+            }
+
             edge.last_y = y;
             edge.accum += dy;
 
+            let mut brightness = 0i32;
+            let mut volume     = 0i32;
+
             while edge.accum >= y_step {
                 edge.accum -= y_step;
-                match edge.side {
-                    EdgeSide::Left  => { log::info!("[gesture] edge-left ↑ → brightness+"); simulate_brightness_up(); }
-                    EdgeSide::Right => { log::info!("[gesture] edge-right ↑ → volume+");    simulate_volume_up();     }
-                }
+                match edge.side { EdgeSide::Left => brightness += 1, EdgeSide::Right => volume += 1 }
             }
             while edge.accum <= -y_step {
                 edge.accum += y_step;
-                match edge.side {
-                    EdgeSide::Left  => { log::info!("[gesture] edge-left ↓ → brightness-"); simulate_brightness_down(); }
-                    EdgeSide::Right => { log::info!("[gesture] edge-right ↓ → volume-");    simulate_volume_down();     }
-                }
+                match edge.side { EdgeSide::Left => brightness -= 1, EdgeSide::Right => volume -= 1 }
             }
+
+            if brightness != 0 {
+                log::info!("[gesture] edge-left steps={brightness}");
+            }
+            if volume != 0 {
+                log::info!("[gesture] edge-right steps={volume}");
+            }
+            (brightness, volume)
         }
     }
 }
@@ -793,20 +939,30 @@ fn simulate_volume_down() {
     unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32); }
 }
 
-/// Increase display brightness by 5 points (max 100).
+/// Increase display brightness by 5 points and show the OSD overlay.
 #[cfg(windows)]
 fn simulate_brightness_up() {
-    if let Ok(info) = crate::hw::display::get_display_info() {
-        let _ = crate::hw::display::set_brightness((info.brightness + 5).min(100));
-    }
+    let cur = crate::hw::display::current_brightness();
+    let new_level = (cur + 5).min(100);
+    let _ = crate::hw::display::set_brightness(new_level);
+    show_brightness_osd(new_level);
 }
 
-/// Decrease display brightness by 5 points (min 10).
+/// Decrease display brightness by 5 points and show the OSD overlay.
 #[cfg(windows)]
 fn simulate_brightness_down() {
-    if let Ok(info) = crate::hw::display::get_display_info() {
-        let _ = crate::hw::display::set_brightness(info.brightness.saturating_sub(5).max(10));
-    }
+    let cur = crate::hw::display::current_brightness();
+    let new_level = cur.saturating_sub(5).max(10);
+    let _ = crate::hw::display::set_brightness(new_level);
+    show_brightness_osd(new_level);
+}
+
+/// Show the always-on-top brightness OSD window (without stealing keyboard focus)
+/// and emit the new level so the frontend can render the indicator.
+#[cfg(windows)]
+fn show_brightness_osd(level: u8) {
+    // Delegate to the native Win32 GDI OSD (no WebView2 / IPC dependency).
+    crate::hw::osd::show_brightness_osd(level);
 }
 
 /// Construct a keyboard `INPUT` struct for use with `SendInput`.

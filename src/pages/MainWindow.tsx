@@ -300,6 +300,7 @@ function StartupTab() {
 
 type HotkeyAction =
   | { type: "none" }
+  | { type: "focus_micontrol" }
   | { type: "open_url"; url: string }
   | { type: "launch_app"; path: string; args: string[] };
 
@@ -326,14 +327,39 @@ function KeyBindingRow({
   binding: KeyBinding;
   onChange: (b: KeyBinding) => void;
 }) {
+  const [detecting, setDetecting] = useState(false);
+  const [detectedVk, setDetectedVk] = useState<string>("");
+
   const actionType = binding.action.type;
   const urlValue = binding.action.type === "open_url" ? binding.action.url : "";
   const appPath = binding.action.type === "launch_app" ? binding.action.path : "";
 
   function setActionType(type: string) {
     if (type === "none") onChange({ ...binding, action: { type: "none" } });
+    else if (type === "focus_micontrol") onChange({ ...binding, action: { type: "focus_micontrol" } });
     else if (type === "open_url") onChange({ ...binding, action: { type: "open_url", url: urlValue } });
     else if (type === "launch_app") onChange({ ...binding, action: { type: "launch_app", path: appPath, args: [] } });
+  }
+
+  async function handleDetect() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("start_key_detect");
+    setDetecting(true);
+    setDetectedVk("…");
+    let tries = 0;
+    const poll = setInterval(async () => {
+      tries++;
+      const vk = await invoke<number>("get_detected_key");
+      if (vk !== 0) {
+        setDetectedVk(`VK 0x${vk.toString(16).toUpperCase().padStart(2, "0")}`);
+        setDetecting(false);
+        clearInterval(poll);
+      } else if (tries >= 20) {
+        setDetectedVk(t("keyboard.actionNone").startsWith("—") ? "—" : "none");
+        setDetecting(false);
+        clearInterval(poll);
+      }
+    }, 500);
   }
 
   return (
@@ -347,21 +373,30 @@ function KeyBindingRow({
           />
           <span className="toggle-slider" />
         </label>
-        <div>
+        <div style={{ flex: 1 }}>
           <div className="card-title" style={{ margin: 0, fontSize: 14 }}>{label}</div>
           <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{description}</div>
         </div>
+        <button
+          className="btn-secondary"
+          onClick={handleDetect}
+          disabled={detecting}
+          style={{ fontSize: 11, padding: "3px 10px", flexShrink: 0 }}
+          title="Start 10 s capture: press the physical key to identify its VK code"
+        >
+          {detecting ? detectedVk || t("keyboard.detectKeyActive") : detectedVk || t("keyboard.detectKey")}
+        </button>
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <select
           className="select-input"
           value={actionType}
-          disabled={!binding.enabled}
           onChange={(e) => setActionType(e.target.value)}
-          style={{ minWidth: 140 }}
+          style={{ minWidth: 200 }}
         >
           <option value="none">{t("keyboard.actionNone")}</option>
+          <option value="focus_micontrol">{t("keyboard.actionFocusMicontrol")}</option>
           <option value="open_url">{t("keyboard.actionOpenUrl")}</option>
           <option value="launch_app">{t("keyboard.actionLaunchApp")}</option>
         </select>
@@ -372,7 +407,6 @@ function KeyBindingRow({
             type="text"
             placeholder={t("keyboard.urlPlaceholder")}
             value={urlValue}
-            disabled={!binding.enabled}
             onChange={(e) =>
               onChange({ ...binding, action: { type: "open_url", url: e.target.value } })
             }
@@ -385,7 +419,6 @@ function KeyBindingRow({
             type="text"
             placeholder={t("keyboard.appPlaceholder")}
             value={appPath}
-            disabled={!binding.enabled}
             onChange={(e) =>
               onChange({
                 ...binding,
@@ -404,13 +437,17 @@ function KeyboardTab() {
   const [config, setConfig] = useState<HotkeyMap | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [hookActive, setHookActive] = useState<boolean | null>(null);
 
   useEffect(() => {
-    import("@tauri-apps/api/core").then(({ invoke }) =>
+    import("@tauri-apps/api/core").then(({ invoke }) => {
       invoke<HotkeyMap>("get_hotkey_config")
         .then(setConfig)
-        .catch((e) => console.error("get_hotkey_config", e))
-    );
+        .catch((e) => console.error("get_hotkey_config", e));
+      invoke<boolean>("is_hook_active")
+        .then(setHookActive)
+        .catch(() => setHookActive(false));
+    });
   }, []);
 
   async function save() {
@@ -440,6 +477,17 @@ function KeyboardTab() {
   return (
     <>
       <PageHeader title={t("keyboard.title")} subtitle={t("keyboard.subtitle")} />
+
+      {hookActive !== null && (
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          fontSize: 12, marginBottom: 12, opacity: 0.8,
+          color: hookActive ? "var(--color-success, #4caf50)" : "var(--color-warning, #ff9800)",
+        }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", display: "inline-block" }} />
+          {hookActive ? t("keyboard.hookActive") : t("keyboard.hookInactive")}
+        </div>
+      )}
 
       <KeyBindingRow
         label={t("keyboard.aiKey")}

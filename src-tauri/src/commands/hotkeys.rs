@@ -11,3 +11,22 @@ pub async fn set_hotkey_config(config: HotkeyMap) -> Result<(), String> {
     update_in_memory(config);
     Ok(())
 }
+
+/// Start a 10-second window where the hook captures and logs all key presses.
+/// Call `get_detected_key` to poll for the result.
+#[tauri::command]
+pub async fn start_key_detect() {
+    crate::hw::hotkeys::start_detect_mode();
+}
+
+/// Return the VK code of the last key captured in detect mode, or 0 if none yet.
+#[tauri::command]
+pub async fn get_detected_key() -> u32 {
+    crate::hw::hotkeys::get_detected_vk()
+}
+
+/// Return whether the WH_KEYBOARD_LL hook is currently installed.
+#[tauri::command]
+pub async fn is_hook_active() -> bool {
+    crate::hw::hotkeys::is_hook_active()
+}

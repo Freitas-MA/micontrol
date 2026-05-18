@@ -4,6 +4,8 @@ pub mod discovery;
 pub mod display;
 pub mod fan;
 pub mod hotkeys;
+#[cfg(windows)]
+pub mod osd;
 pub mod performance;
 pub mod processes;
 pub mod startup;

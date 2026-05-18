@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import MainWindow from "./pages/MainWindow";
 import TrayPopup from "./pages/TrayPopup";
+import BrightnessOsd from "./components/BrightnessOsd";
 import { useHardware } from "./hooks/useHardware";
 import { useLanguage } from "./hooks/useI18n";
 import { ToastProvider } from "./contexts/ToastContext";
@@ -24,11 +25,20 @@ function useTheme() {
   return { themeMode: mode, toggleTheme };
 }
 
-// Tauri passes ?window=tray or ?window=main in the URL
+// Tauri passes ?window=tray, ?window=main, or ?window=brightness-osd in the URL
 const windowType = new URLSearchParams(window.location.search).get("window");
-const isTrayPopup = windowType === "tray";
+const isTrayPopup     = windowType === "tray";
+const isBrightnessOsd = windowType === "brightness-osd";
 
 export default function App() {
+  // The brightness OSD window needs a transparent body — no providers needed.
+  if (isBrightnessOsd) {
+    // Apply transparent background so the glass card floats over the desktop.
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
+    return <BrightnessOsd />;
+  }
+
   const hardware = useHardware();
   const [activeTab, setActiveTab] = useState("overview");
   const { themeMode, toggleTheme } = useTheme();

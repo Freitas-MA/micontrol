@@ -2,6 +2,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU8, Ordering};
 
+/// Set to `false` after the first `set_brightness_igcl` failure so we never
+/// retry a DLL that cannot load — avoids a WARN log on every brightness change.
+static IGCL_SET_AVAILABLE: AtomicBool = AtomicBool::new(true);
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DisplayInfo {
     pub brightness: u8,
@@ -96,6 +100,11 @@ fn read_current_brightness() -> Option<u8> {
         .ok()
 }
 
+/// Lightweight brightness read (no full DisplayInfo) for the gesture thread.
+pub fn current_brightness() -> u8 {
+    read_current_brightness().unwrap_or(80)
+}
+
 pub fn get_display_info() -> Result<DisplayInfo> {
     // WMI brightness = what Windows Display Settings slider shows (ground truth).
     let brightness = get_brightness_wmi().unwrap_or_else(|_| get_brightness_igcl().unwrap_or(80));
@@ -121,8 +130,14 @@ pub fn get_display_info() -> Result<DisplayInfo> {
 
 pub fn set_brightness(level: u8) -> Result<()> {
     let level = level.clamp(10, 100);
-    if let Err(e) = set_brightness_igcl(level) {
-        log::warn!("IGCL brightness failed: {e}, using WMI");
+    // Only try IGCL if it has not already failed permanently.
+    if IGCL_SET_AVAILABLE.load(Ordering::Relaxed) {
+        if let Err(e) = set_brightness_igcl(level) {
+            log::warn!("IGCL brightness failed: {e}, falling back to WMI permanently");
+            IGCL_SET_AVAILABLE.store(false, Ordering::Relaxed);
+            set_brightness_wmi(level)?;
+        }
+    } else {
         set_brightness_wmi(level)?;
     }
     Ok(())
@@ -218,13 +233,26 @@ pub async fn adaptive_brightness_loop() {
     let mut no_sensor_warned = false;
     // Last value we applied so we can detect external changes (Fn keys, OS).
     let mut last_set: Option<u8> = None;
+    // Track whether we have already disabled Windows ADAPTBRIGHT for the
+    // current "enabled session".  Reset when adaptive brightness is turned off
+    // so we re-disable it if the user re-enables.
+    let mut adaptbright_suppressed = false;
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         let cfg = get_ai_brightness_config();
         if !cfg.enabled {
             smoothed = None;
             last_set = None;
+            adaptbright_suppressed = false;
             continue;
+        }
+
+        // Ensure Windows' own ADAPTBRIGHT (power-plan adaptive brightness) is
+        // off — if both run simultaneously they fight over the backlight,
+        // causing the brightness-near-zero oscillation symptom.
+        if !adaptbright_suppressed {
+            disable_windows_adaptive_brightness();
+            adaptbright_suppressed = true;
         }
 
         // ── Detect external brightness changes (Fn keys, Windows sliders) ──
@@ -297,6 +325,11 @@ pub async fn adaptive_brightness_loop() {
         let next    = current + (target - current) * (1.0 - sf);
         smoothed = Some(next);
         let value = next.round() as u8;
+        // Hysteresis: skip the write if the new value is the same as last
+        // (or within 1 pp) to avoid constant low-amplitude oscillations.
+        if last_set.map_or(false, |prev| (value as i16 - prev as i16).abs() < 2) {
+            continue;
+        }
         if let Err(e) = set_brightness(value) {
             log::warn!("adaptive_brightness: set_brightness error: {e}");
         } else {

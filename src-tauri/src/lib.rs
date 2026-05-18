@@ -6,7 +6,7 @@ mod elev_bridge;
 
 use commands::ai_logs::{write_ai_perf_log, read_ai_perf_logs, open_ai_logs_dir};
 use commands::hardware::{get_performance_mode, set_performance_mode, get_charging_threshold, set_charging_threshold};
-use commands::hotkeys::{get_hotkey_config, set_hotkey_config};
+use commands::hotkeys::{get_hotkey_config, set_hotkey_config, start_key_detect, get_detected_key, is_hook_active};
 use commands::system::{
     get_battery_info, get_display_info, set_brightness, set_hdr,
     set_ai_brightness, get_ai_brightness_config, set_ai_brightness_config,
@@ -63,7 +63,9 @@ async fn open_main_window(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -113,6 +115,9 @@ pub fn run() {
             // Hotkeys (keyboard remapping)
             get_hotkey_config,
             set_hotkey_config,
+            start_key_detect,
+            get_detected_key,
+            is_hook_active,
             // Display refresh rate
             get_available_refresh_rates,
             set_refresh_rate,
@@ -135,8 +140,33 @@ pub fn run() {
             // Start keyboard hook (intercepts Xiaomi AI / PCManager / Copilot keys)
             crate::hw::hotkeys::start_hook();
 
+            // Register focus callback: Xiaomi key / AI key / Copilot key fires this.
+            // We toggle the tray quick-access popup, exactly like XiaomiPCManager did.
+            {
+                let app_handle = app.handle().clone();
+                crate::hw::hotkeys::set_focus_callback(Box::new(move || {
+                    if let Some(popup) = app_handle.get_webview_window("tray") {
+                        if popup.is_visible().unwrap_or(false) {
+                            let _ = popup.hide();
+                        } else {
+                            position_popup_at_tray(&popup);
+                            TRAY_SHOWN_AT_MS.store(now_ms(), Ordering::Relaxed);
+                            let _ = popup.show();
+                            let _ = popup.set_focus();
+                        }
+                    }
+                }));
+            }
+
             // Start touchpad gesture listener (5-finger screenshot, edge slide volume/brightness)
             crate::hw::touchpad::start_gesture_listener();
+
+            // Give the gesture thread access to the app handle so it can show the OSD.
+            crate::hw::touchpad::set_app_handle(app.handle().clone());
+
+            // Start the native Win32 brightness OSD (GDI layered window, no WebView2).
+            #[cfg(windows)]
+            crate::hw::osd::init();
 
             // Start adaptive brightness background task
             tauri::async_runtime::spawn(crate::hw::display::adaptive_brightness_loop());
@@ -372,6 +402,41 @@ fn position_popup(window: &tauri::WebviewWindow, click_pos: &tauri::PhysicalPosi
     // X: centred on the click, clamped so it doesn't overflow the right edge.
     let x = (click_pos.x - pw / 2.0).max(0.0).min(work_right - pw).round() as i32;
     // Y: popup bottom sits at work-area bottom (top of taskbar) minus a small gap.
+    let y = (work_bottom - ph - gap).max(0.0).round() as i32;
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// Position the tray popup at the bottom-right of the work area (near system tray).
+/// Used when toggling via hotkey where there is no tray-icon click position.
+fn position_popup_at_tray(window: &tauri::WebviewWindow) {
+    const POPUP_W: f64 = 300.0;
+    const GAP: f64 = 8.0;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let pw = POPUP_W * scale;
+    let ph = window.inner_size().map(|s| s.height as f64).unwrap_or(460.0 * scale);
+    let gap = GAP * scale;
+
+    #[cfg(windows)]
+    let (work_right, work_bottom) = {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+        };
+        unsafe {
+            let hmon = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+            let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..std::mem::zeroed() };
+            if GetMonitorInfoW(hmon, &mut info).as_bool() {
+                (info.rcWork.right as f64, info.rcWork.bottom as f64)
+            } else {
+                (1920.0, 1040.0)
+            }
+        }
+    };
+    #[cfg(not(windows))]
+    let (work_right, work_bottom) = (1920.0_f64, 1040.0_f64);
+
+    // Align popup bottom-right of the work area (system tray is bottom-right)
+    let x = (work_right - pw - gap).max(0.0).round() as i32;
     let y = (work_bottom - ph - gap).max(0.0).round() as i32;
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
