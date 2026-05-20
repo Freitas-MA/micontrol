@@ -17,6 +17,7 @@ use commands::system::{
     get_autostart, set_autostart, get_update_status, trigger_driver_scan,
     get_hardware_profile, run_hardware_discovery, install_driver,
     get_available_refresh_rates, set_refresh_rate, set_adaptive_refresh_rate, get_process_list,
+    debug_ecram_dump,
 };
 use state::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -129,6 +130,8 @@ pub fn run() {
             write_ai_perf_log,
             read_ai_perf_logs,
             open_ai_logs_dir,
+            // ECRAM debug
+            debug_ecram_dump,
         ])
         .setup(|app| {
             // Hardware discovery — load cached profile or scan on first run

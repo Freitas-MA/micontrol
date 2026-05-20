@@ -209,7 +209,7 @@
     "mah": "mAh",
     "celsius": "°C",
     "volts": "V",
-    "chargeRate": "Puissance d’entrée",
+    "chargeRate": "Taux de charge",
     "dischargeRate": "Taux de décharge",
     "wh": "Wh",
     "voltageUnit": "V",
@@ -226,10 +226,12 @@
       "cyclesDesc": "Une décharge complète (0→100 %) compte pour un cycle. Les charges partielles s’accumulent proportionnellement. La plupart des cellules lithium durent 500 à 1 000 cycles avant une perte significative de capacité.",
       "powerSection": "Flux d’énergie",
       "chargeRateLabel": "Taux de charge / décharge",
-      "chargeRateDesc": "Mesuré par le pilote de batterie en mW (milliwatts). Positif = énergie entrant dans la batterie. Reflète ce que la cellule accepte réellement — qui peut être inférieur à la puissance nominale du chargeur.",
-      "timeLabel": "Temps restant",
-      "timeDesc": "Estimation instantanée : énergie restante divisée par le taux de décharge actuel. Fluctue selon la charge de travail."
-    }
+      "chargeRateDesc": "Puissance circulant vers ou depuis la batterie, mesurée par le pilote en mW. Il s’agit du taux propre à la batterie — pas de la sortie totale de l’adaptateur AC. Puissance adaptateur = taux de charge batterie + consommation système, mais la consommation système n’est pas accessible via les API Windows standard.",
+      "timeLabel": "Temps Restant / Temps pour Charge Complète",
+      "timeDesc": "Estimation instantanée basée sur l’énergie et le taux de puissance actuels. En décharge : énergie restante ÷ taux de décharge. En charge : énergie nécessaire ÷ taux de charge. Fluctue selon la charge de travail."
+    },
+    "timeToFull": "Temps pour charge complète",
+    "acInputPower": "Puissance adaptateur AC"
   },
   "charging": {
     "title": "Contrôle de charge",

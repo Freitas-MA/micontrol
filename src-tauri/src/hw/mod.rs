@@ -1,5 +1,6 @@
 pub mod battery;
 pub mod charging;
+pub mod ecram;
 pub mod discovery;
 pub mod display;
 pub mod fan;

@@ -233,6 +233,15 @@ pub async fn install_driver(driver_name: String) -> Result<String, String> {
     Ok(raw.as_str().unwrap_or("installed").to_string())
 }
 
+/// Read raw ECRAM bytes for debugging.
+/// Returns a hex dump string (one line per 16 bytes) of the EC's known data ranges.
+/// Use this to identify which byte offset corresponds to charger wattage:
+/// plug/unplug the charger and call this command to see which bytes change.
+#[tauri::command]
+pub async fn debug_ecram_dump() -> Result<String, String> {
+    crate::hw::ecram::debug_ecram_hex().map_err(|e| e.to_string())
+}
+
 fn resolve_driver_inf(driver_name: &str) -> Result<String, String> {
     let candidates = [
         format!("drivers/{}/{}.inf", driver_name, driver_name.to_lowercase()),

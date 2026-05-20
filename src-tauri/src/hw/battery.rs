@@ -14,10 +14,16 @@ pub struct BatteryInfo {
     pub device_name: String,
     pub temperature_celsius: Option<f64>,
     pub time_remaining_minutes: Option<i32>,
+    /// Estimated minutes until battery is fully charged. None when not charging.
+    pub time_to_full_minutes: Option<i32>,
     /// Positive = charge rate mW, negative = discharge rate mW. Zero when unknown.
     pub charge_rate_mw: i32,
     /// Current battery voltage in millivolts (mV). Zero if unavailable.
     pub voltage_mv: u32,
+    /// AC adapter input power in milliwatts (mW). None when not plugged in,
+    /// when the IoT driver is not available, or before the register offset is
+    /// confirmed. Use `debug_ecram_dump` to identify the correct offset.
+    pub ac_input_power_mw: Option<i32>,
 }
 
 #[cfg(windows)]
@@ -118,6 +124,24 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
         None
     };
 
+    let time_to_full_minutes = if is_charging && charging_rate > 0 {
+        let remaining_to_full = full_cap_mah.saturating_sub(remaining_capacity);
+        if remaining_to_full > 0 {
+            Some((remaining_to_full as f64 / charging_rate as f64 * 60.0) as i32)
+        } else {
+            Some(0) // already at full capacity
+        }
+    } else {
+        None
+    };
+
+    // Try to read AC adapter input power from ECRAM (IoTDriver.sys)
+    let ac_input_power_mw = if is_plugged {
+        crate::hw::ecram::try_get_ac_power_mw()
+    } else {
+        None
+    };
+
     Ok(BatteryInfo {
         level,
         is_charging,
@@ -130,11 +154,13 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
         device_name,
         temperature_celsius,
         time_remaining_minutes,
+        time_to_full_minutes,
         charge_rate_mw: charging_rate,
         voltage_mv: match status.get("Voltage") {
             Some(wmi::Variant::UI4(v)) => *v,
             _ => 0,
         },
+        ac_input_power_mw,
     })
 }
 
@@ -152,8 +178,10 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
         device_name: "BX70".to_string(),
         temperature_celsius: Some(28.5),
         time_remaining_minutes: Some(240),
+        time_to_full_minutes: None,
         charge_rate_mw: 0,
         voltage_mv: 11400,
+        ac_input_power_mw: None,
     })
 }
 

@@ -209,8 +209,8 @@
     "mah": "mAh",
     "celsius": "°C",
     "volts": "V",
-    "chargeRate": "Potencia de Entrada",
-    "dischargeRate": "Tasa de Descarga",
+    "chargeRate": "Tasa de carga",
+    "dischargeRate": "Tasa de descarga",
     "wh": "Wh",
     "voltageUnit": "V",
     "infoModal": {
@@ -226,10 +226,12 @@
       "cyclesDesc": "Una descarga completa (0→100%) cuenta como un ciclo. Las cargas parciales se acumulan proporcionalmente. La mayoría de células de litio duran 500–1.000 ciclos antes de perder capacidad significativa.",
       "powerSection": "Flujo de Energía",
       "chargeRateLabel": "Tasa de Carga / Descarga",
-      "chargeRateDesc": "Medido por el controlador de batería en mW (milivatios). Positivo = energía entrando en la batería. Refleja lo que la célula realmente acepta — puede ser menor que la potencia nominal del cargador.",
-      "timeLabel": "Tiempo Restante",
-      "timeDesc": "Estimación instantánea: energía restante dividida entre la tasa de descarga actual. Varía con la carga de trabajo."
-    }
+      "chargeRateDesc": "Potencia que fluye hacia o desde la batería, medida por el controlador en mW. Esta es la tasa de la propia batería — no la salida total del adaptador AC. Potencia del adaptador = tasa de carga de la batería + consumo del sistema, pero el consumo del sistema no está disponible a través de las APIs estándar de Windows.",
+      "timeLabel": "Tiempo Restante / Tiempo para Carga Completa",
+      "timeDesc": "Estimación instantánea basada en la energía actual y la tasa de potencia. Al descargar: energía restante ÷ tasa de descarga. Al cargar: energía necesaria para completar ÷ tasa de carga. Fluctuú con la carga de trabajo."
+    },
+    "timeToFull": "Tiempo para carga completa",
+    "acInputPower": "Potencia del adaptador AC"
   },
   "charging": {
     "title": "Control de Carga",

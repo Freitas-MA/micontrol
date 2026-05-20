@@ -204,8 +204,10 @@
     "full": "Fully Charged",
     "unknown": "Unknown",
     "timeRemaining": "Time remaining",
-    "chargeRate": "Input Power",
-    "dischargeRate": "Discharge Rate",
+    "timeToFull": "Time to full",
+    "chargeRate": "Charging rate",
+    "dischargeRate": "Discharge rate",
+    "acInputPower": "AC adapter power",
     "hours": "h",
     "minutes": "m",
     "mah": "mAh",
@@ -226,9 +228,9 @@
       "cyclesDesc": "One full discharge (0\u2192100%) counts as one cycle. Partial charges accumulate proportionally. Most lithium cells last 500\u20131,000 cycles before significant capacity loss.",
       "powerSection": "Power Flow",
       "chargeRateLabel": "Charge / Discharge Rate",
-      "chargeRateDesc": "Measured by the battery driver in mW (milliwatts). Positive = power entering the battery. Reflects what the cell is actually accepting \u2014 which may be less than the charger\u2019s rated output.",
-      "timeLabel": "Time Remaining",
-      "timeDesc": "Instantaneous estimate: remaining energy divided by the current discharge rate. Fluctuates significantly with varying workload."
+      "chargeRateDesc": "Power flowing to or from the battery, measured by the battery driver in mW. This is the battery\u2019s own charge or discharge rate \u2014 not the total AC adapter output. Adapter wattage = battery charge rate + system power draw, but system consumption is not available through standard Windows APIs.",
+      "timeLabel": "Time Remaining / Time to Full",
+      "timeDesc": "Instantaneous estimate based on current energy and power rate. When discharging on battery: remaining energy \u00f7 discharge rate. When charging: energy needed to fill \u00f7 charge rate. Fluctuates with varying workload."
     }
   },
   "charging": {

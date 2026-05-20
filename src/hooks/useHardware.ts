@@ -54,10 +54,15 @@ export interface BatteryInfo {
   device_name: string;
   temperature_celsius: number | null;
   time_remaining_minutes: number | null;
+  /** Estimated minutes until fully charged. Null when not charging. */
+  time_to_full_minutes: number | null;
   /** Positive = charge rate in mW; negative = discharge rate in mW; 0 = unknown */
   charge_rate_mw: number;
   /** Current battery voltage in millivolts. 0 = unavailable. */
   voltage_mv: number;
+  /** AC adapter input power in milliwatts. Null when not plugged in or when the
+   * ECRAM register offset for this laptop has not yet been confirmed. */
+  ac_input_power_mw: number | null;
 }
 
 export interface AiBrightnessConfig {

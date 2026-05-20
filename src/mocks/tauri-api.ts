@@ -67,7 +67,9 @@ const BATTERY_INFO: BatteryInfo = {
   device_name: "LP-L9N80V",
   temperature_celsius: 32.5,
   time_remaining_minutes: 187,
+  time_to_full_minutes: null,
   charge_rate_mw: 0,
+  ac_input_power_mw: null,
   voltage_mv: 11400,
 };
 

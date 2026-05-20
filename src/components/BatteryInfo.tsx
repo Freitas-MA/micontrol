@@ -73,31 +73,25 @@ export default function BatteryInfo({ battery }: Props) {
         </button>
       </div>
 
-      <div className="grid-2" style={{ marginBottom: 16 }}>
-        <div>
-          <div className="card-value">{battery.level}%</div>
-          <div className="card-subtitle">
-            <span className={`badge ${battery.is_charging ? "success" : battery.is_plugged ? "info" : "warning"}`}>
-              {t(`battery.${statusKey}` as Parameters<typeof t>[0])}
-            </span>
-          </div>
-          <div className="progress-bar" style={{ marginTop: 12 }}>
-            <div
-              className={`progress-fill ${batteryColor(battery.level)}`}
-              style={{ width: `${battery.level}%` }}
-            />
-          </div>
-        </div>
-        <div>
-          <div className="card-value">
-            {battery.health_percent.toFixed(1)}%
-          </div>
-          <div className="card-subtitle">
-            <span className={`badge ${healthColor(battery.health_percent)}`}>
-              {t("battery.health")}
-            </span>
-          </div>
-        </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span className={`badge ${battery.is_charging ? "success" : battery.is_plugged ? "info" : "warning"}`}>
+          {t(`battery.${statusKey}` as Parameters<typeof t>[0])}
+        </span>
+        <span style={{ fontWeight: 700, fontSize: 18, lineHeight: 1 }}>{battery.level}%</span>
+      </div>
+      <div className="progress-bar" style={{ marginBottom: 8 }}>
+        <div
+          className={`progress-fill ${batteryColor(battery.level)}`}
+          style={{ width: `${battery.level}%` }}
+        />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <span className={`badge ${healthColor(battery.health_percent)}`}>
+          {t("battery.health")}
+        </span>
+        <span style={{ fontSize: 13, color: "var(--text-dim)", fontWeight: 500 }}>
+          {battery.health_percent.toFixed(1)}%
+        </span>
       </div>
 
       <div className="stat-row">
@@ -144,23 +138,35 @@ export default function BatteryInfo({ battery }: Props) {
           <span className="stat-value">{battery.temperature_celsius.toFixed(1)} {t("battery.celsius")}</span>
         </div>
       )}
-      {battery.is_charging && battery.charge_rate_mw > 0 && (
+      {battery.ac_input_power_mw != null && battery.is_plugged && (
         <div className="stat-row">
-          <span className="stat-label">{t("battery.chargeRate")}</span>
-          <span className="stat-value" style={{ color: "var(--success, #4caf50)", fontWeight: 600 }}>
-            ⚡ {(battery.charge_rate_mw / 1000).toFixed(1)} W
+          <span className="stat-label">{t("battery.acInputPower")}</span>
+          <span className="stat-value" style={{ fontFamily: "var(--font-mono)", color: "var(--success, #4caf50)", fontWeight: 600 }}>
+            ⚡ {(battery.ac_input_power_mw / 1000).toFixed(0)} W
           </span>
         </div>
       )}
-      {!battery.is_charging && !battery.is_plugged && battery.charge_rate_mw < 0 && (
+      {battery.charge_rate_mw !== 0 && (
         <div className="stat-row">
-          <span className="stat-label">{t("battery.dischargeRate")}</span>
-          <span className="stat-value" style={{ fontFamily: "var(--font-mono)" }}>
-            {(Math.abs(battery.charge_rate_mw) / 1000).toFixed(1)} W
+          <span className="stat-label">
+            {battery.charge_rate_mw > 0 ? t("battery.chargeRate") : t("battery.dischargeRate")}
+          </span>
+          <span className="stat-value" style={{
+            color: battery.charge_rate_mw > 0 ? "var(--success, #4caf50)" : undefined,
+            fontWeight: battery.charge_rate_mw > 0 ? 600 : undefined,
+            fontFamily: "var(--font-mono)",
+          }}>
+            {battery.charge_rate_mw > 0 && "⚡ "}{(Math.abs(battery.charge_rate_mw) / 1000).toFixed(1)} W
           </span>
         </div>
       )}
-      {!battery.is_charging && battery.time_remaining_minutes != null && (
+      {battery.is_charging && battery.time_to_full_minutes != null && (
+        <div className="stat-row">
+          <span className="stat-label">{t("battery.timeToFull")}</span>
+          <span className="stat-value">{formatTime(battery.time_to_full_minutes)}</span>
+        </div>
+      )}
+      {!battery.is_charging && !battery.is_plugged && battery.time_remaining_minutes != null && (
         <div className="stat-row">
           <span className="stat-label">{t("battery.timeRemaining")}</span>
           <span className="stat-value">{formatTime(battery.time_remaining_minutes)}</span>
