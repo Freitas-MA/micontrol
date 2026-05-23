@@ -226,6 +226,47 @@ fn launch_elevated_via_uac() -> Result<(), String> {
     Ok(())
 }
 
+/// Re-launch the current executable as administrator using `ShellExecuteExW` "runas".
+///
+/// Unlike [`launch_elevated_via_uac`] this function:
+/// - does NOT pass `--elevated` to the new instance (normal startup)
+/// - shows the new window (`SW_SHOWNORMAL`)
+/// - does NOT wait for the new process to finish
+///
+/// After this returns the caller should call `app.exit(0)` to shut down the
+/// current (non-elevated) instance and let the elevated instance take over.
+#[cfg(windows)]
+pub fn relaunch_self_as_admin() -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOASYNC};
+
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let exe_str = exe.to_string_lossy().into_owned();
+
+    let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
+    let file: Vec<u16> = OsStr::new(&exe_str).encode_wide().chain(Some(0)).collect();
+
+    unsafe {
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_NOASYNC,
+            hwnd: HWND(std::ptr::null_mut()),
+            lpVerb: PCWSTR(verb.as_ptr()),
+            lpFile: PCWSTR(file.as_ptr()),
+            lpParameters: PCWSTR::null(),
+            nShow: 1, // SW_SHOWNORMAL
+            ..std::mem::zeroed()
+        };
+
+        ShellExecuteExW(&mut info).map_err(|e| format!("ShellExecuteExW: {e}"))?;
+    }
+
+    Ok(())
+}
+
 /// Returns true if the current process token has the Administrators group enabled
 /// (i.e. the process is running elevated / as administrator).
 #[cfg(windows)]

@@ -417,7 +417,7 @@ pub fn find_iotdriver_store_dir() -> Result<std::path::PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Cannot derive DriverStore dir from: {image_path}"))
 }
 
-/// Deploy `ecram_shim.exe` to the IoTDriver DriverStore directory.
+/// Deploy the helper executable to the IoTDriver DriverStore directory.
 ///
 /// Uses `SeRestorePrivilege` + `FILE_FLAG_BACKUP_SEMANTICS` to write into the
 /// TrustedInstaller-owned directory.  No-ops if the deployed file is already
@@ -425,7 +425,7 @@ pub fn find_iotdriver_store_dir() -> Result<std::path::PathBuf> {
 ///
 /// Returns the absolute path to the deployed shim.
 #[cfg(windows)]
-pub fn deploy_ecram_shim() -> Result<std::path::PathBuf> {
+pub fn deploy_ecram_shim(dest_file_name: &str) -> Result<std::path::PathBuf> {
     // Locate source shim (same directory as the running executable)
     let exe = std::env::current_exe().context("current_exe")?;
     let shim_src = exe
@@ -439,7 +439,7 @@ pub fn deploy_ecram_shim() -> Result<std::path::PathBuf> {
     );
 
     let driverstore_dir = find_iotdriver_store_dir()?;
-    let dest = driverstore_dir.join("ecram_shim.exe");
+    let dest = driverstore_dir.join(dest_file_name);
 
     // Skip if already up to date
     if dest.exists() {
@@ -452,7 +452,7 @@ pub fn deploy_ecram_shim() -> Result<std::path::PathBuf> {
         }
     }
 
-    log::info!("[ecram_shim] Deploying to {dest:?}");
+    log::info!("[ecram_shim] Deploying {dest_file_name} to {dest:?}");
     enable_restore_privilege().context("enable SeRestorePrivilege")?;
     copy_with_backup_semantics(&shim_src, &dest)?;
     log::info!("[ecram_shim] Deployed successfully");
@@ -522,26 +522,93 @@ pub fn write_ecram_via_shim(phys_addr: u64, data: &[u8]) -> Result<()> {
     }
 }
 
+/// Returns `true` when the current process token is elevated (administrator).
+#[cfg(windows)]
+pub fn is_process_elevated() -> bool {
+    use windows::Win32::UI::Shell::IsUserAnAdmin;
+    unsafe { IsUserAnAdmin().as_bool() }
+}
+
+#[cfg(not(windows))]
+#[allow(dead_code)]
+pub fn is_process_elevated() -> bool {
+    false
+}
+
+/// Spawn `ecram_shim.exe` with no console window and capture its stdout.
+///
+/// Requires the calling process to be elevated (administrator).  IoTDriver.sys
+/// enforces both the DriverStore path check (satisfied by deploying the shim)
+/// AND requires `SeTokenIsAdmin` on the calling token.  If the process is not
+/// elevated this returns an actionable error rather than spawning a subprocess
+/// that would silently fail with `ERROR_ACCESS_DENIED`.
 #[cfg(windows)]
 fn run_ecram_shim(args: impl IntoIterator<Item = String>) -> Result<serde_json::Value> {
-    let shim_path = deploy_ecram_shim().context("deploy ecram_shim")?;
+    use std::os::windows::process::CommandExt;
+    /// Suppress the console window that would otherwise flash when spawning
+    /// a Windows console subsystem binary from a GUI (windowless) process.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let args_vec: Vec<String> = args.into_iter().collect();
 
-    let output = std::process::Command::new(&shim_path)
-        .args(args)
-        .output()
-        .with_context(|| format!("Failed to spawn ecram_shim at {shim_path:?}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let v: serde_json::Value = serde_json::from_str(stdout.trim())
-        .with_context(|| format!("Invalid shim output: stdout={stdout} stderr={stderr}"))?;
-
-    if !v["ok"].as_bool().unwrap_or(false) {
-        let err = v["error"].as_str().unwrap_or("unknown shim error");
-        anyhow::bail!("ecram_shim: {err}");
+    if !is_process_elevated() {
+        anyhow::bail!(
+            "IoT module requires administrator privileges.\n\
+             Please run MiControl as administrator to enable ECRAM access."
+        );
     }
 
-    Ok(v)
+    // Some firmware builds verify the process image name in addition to path.
+    // Try IoTService.exe alias first, then fall back to ecram_shim.exe.
+    let mut errors: Vec<String> = Vec::new();
+    for helper_name in ["IoTService.exe", "ecram_shim.exe"] {
+        let shim_path = match deploy_ecram_shim(helper_name).with_context(|| {
+            format!("deploy {helper_name} to IoTDriver DriverStore")
+        }) {
+            Ok(p) => p,
+            Err(e) => {
+                errors.push(format!("{helper_name}: {e:#}"));
+                continue;
+            }
+        };
+
+        let output = match std::process::Command::new(&shim_path)
+            .args(args_vec.iter())
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .with_context(|| format!("Failed to spawn helper at {shim_path:?}"))
+        {
+            Ok(o) => o,
+            Err(e) => {
+                errors.push(format!("{helper_name}: {e:#}"));
+                continue;
+            }
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let v: serde_json::Value = match serde_json::from_str(stdout.trim())
+            .with_context(|| format!("Invalid shim output: stdout={stdout} stderr={stderr}"))
+        {
+            Ok(v) => v,
+            Err(e) => {
+                errors.push(format!("{helper_name}: {e:#}"));
+                continue;
+            }
+        };
+
+        if !v["ok"].as_bool().unwrap_or(false) {
+            let err = v["error"].as_str().unwrap_or("unknown shim error");
+            errors.push(format!("{helper_name}: {err}"));
+            continue;
+        }
+
+        return Ok(v);
+    }
+
+    if errors.is_empty() {
+        anyhow::bail!("No shim helper variant succeeded");
+    }
+    anyhow::bail!("All helper variants failed: {}", errors.join(" | "))
 }
 
 #[cfg(windows)]
@@ -659,6 +726,12 @@ pub struct EramMap {
     pub misc0: u8,
     // ── Byte +0x01 — Miscellaneous flags 1 ───────────────────────────────────
     pub misc1: u8,
+    /// Raw control byte at offset 0x1B.
+    pub control_flags_1b: u8,
+    /// AILM flag (`0x1B bit 2`) from AML decode.
+    pub ai_limit_enabled: bool,
+    /// LBLM flag (`0x1B bit 3`) from AML decode.
+    pub long_battery_limit_enabled: bool,
 
     // ── Thermal / Fan ────────────────────────────────────────────────────────
     /// CPU temperature sensor (°C, offset +0x03)
@@ -669,6 +742,14 @@ pub struct EramMap {
     pub fan2_rpm: u16,
     /// CPU power (Watts, 1 byte, offset +0x0A)
     pub cpu_power_w: u8,
+    /// SMMT — Smart Mode Type byte (offset +0x4A)
+    pub smart_mode_type: u8,
+    /// SMMD — Smart Mode Data byte (offset +0x4B)
+    pub smart_mode_data: u8,
+    /// Derived human-readable meaning for the SMMT/SMMD pair when recognized.
+    pub smart_mode_profile: Option<String>,
+    /// QFAN — fan/smart profile byte (offset +0x68)
+    pub qfan_mode: u8,
 
     // ── Performance mode ─────────────────────────────────────────────────────
     /// Performance profile byte (offset +0x40): 0x00=Balanced, 0x01=Performance, 0x02=Silent
@@ -694,6 +775,10 @@ pub struct EramMap {
     pub charge_threshold_pct: u8,
     /// Battery temperature (°C, 1 byte, offset +0x97)
     pub battery_temp_c: u8,
+    /// DBLL — display brightness level (7-bit, offset +0xAE)
+    pub display_brightness_level: u8,
+    /// KBLL — keyboard backlight level (7-bit, offset +0xB2)
+    pub keyboard_backlight_level: u8,
 
     /// Raw full 256-byte ERAM dump (hex string, for debugging unmapped fields)
     pub raw_hex: String,
@@ -711,14 +796,32 @@ pub fn read_eram_map() -> Result<EramMap> {
     anyhow::ensure!(eram.len() >= 0x100, "Short ERAM read: {} bytes", eram.len());
 
     let raw_hex: String = eram.iter().map(|b| format!("{b:02x}")).collect();
+    let control_flags_1b = eram[0x1B];
+    let smart_mode_type = eram[0x4A];
+    let smart_mode_data = eram[0x4B];
+    let smart_mode_profile = match (smart_mode_type, smart_mode_data) {
+        (0, 5) => Some("FUN3=5 -> NTDP profile 5".to_string()),
+        (0, 6) => Some("FUN3=6 -> NTDP profile 6".to_string()),
+        (7, 0) => Some("FUN3=7 -> Smart Mode Type 7 (inverted)".to_string()),
+        (8, 0) => Some("FUN3=8 -> Smart Mode Type 8 (inverted)".to_string()),
+        (0, 0) => Some("Cleared SMMT/SMMD (FUN3=9 or FUN3=10 path)".to_string()),
+        _ => None,
+    };
 
     Ok(EramMap {
         misc0: eram[0x00],
         misc1: eram[0x01],
+        control_flags_1b,
+        ai_limit_enabled: (control_flags_1b & 0b0000_0100) != 0,
+        long_battery_limit_enabled: (control_flags_1b & 0b0000_1000) != 0,
         cpu_temp_c: eram[0x03],
         fan_rpm: u16::from_le_bytes([eram[0x04], eram[0x05]]),
         fan2_rpm: u16::from_le_bytes([eram[0x06], eram[0x07]]),
         cpu_power_w: eram[0x0A],
+        smart_mode_type,
+        smart_mode_data,
+        smart_mode_profile,
+        qfan_mode: eram[0x68],
         perf_profile: eram[0x40],
         tdp_w: eram[0x42],
         ac_flags: eram[0x80],
@@ -729,6 +832,8 @@ pub fn read_eram_map() -> Result<EramMap> {
         battery_voltage_mv: u16::from_le_bytes([eram[0x90], eram[0x91]]),
         charge_threshold_pct: eram[0x96],
         battery_temp_c: eram[0x97],
+        display_brightness_level: eram[0xAE] & 0x7F,
+        keyboard_backlight_level: eram[0xB2] & 0x7F,
         raw_hex,
     })
 }

@@ -180,6 +180,37 @@ export interface HardwareProfile {
   capabilities: HardwareCapabilities;
 }
 
+export type IotRegionName = "ERAM" | "SMA2" | "IOT_STATUS" | "IOT_SENSORS";
+
+export interface EramMap {
+  misc0: number;
+  misc1: number;
+  control_flags_1b: number;
+  ai_limit_enabled: boolean;
+  long_battery_limit_enabled: boolean;
+  cpu_temp_c: number;
+  fan_rpm: number;
+  fan2_rpm: number;
+  cpu_power_w: number;
+  smart_mode_type: number;
+  smart_mode_data: number;
+  smart_mode_profile: string | null;
+  qfan_mode: number;
+  perf_profile: number;
+  tdp_w: number;
+  ac_flags: number;
+  ac_connected: boolean;
+  ac_adapter_w: number;
+  battery_current_ma: number;
+  battery_capacity_mah: number;
+  battery_voltage_mv: number;
+  charge_threshold_pct: number;
+  battery_temp_c: number;
+  display_brightness_level: number;
+  keyboard_backlight_level: number;
+  raw_hex: string;
+}
+
 // ── Hardware hook ────────────────────────────────────────────────────────────
 
 export function useHardware() {
@@ -446,6 +477,30 @@ export function useHardware() {
     await invoke("open_ai_logs_dir");
   }, []);
 
+  const getEcramMap = useCallback(async () => {
+    return invoke<EramMap>("get_ecram_map");
+  }, []);
+
+  const getIotRegionHex = useCallback(async (region: IotRegionName) => {
+    return invoke<string>("get_iot_region_hex", { region });
+  }, []);
+
+  const writeIotHex = useCallback(async (address: string, hexData: string) => {
+    await invoke("write_iot_hex", { address, hexData });
+  }, []);
+
+  const readEcramRaw = useCallback(async (address: string, count: number) => {
+    return invoke<string>("read_ecram_raw", { address, count });
+  }, []);
+
+  const isElevated = useCallback(async () => {
+    return invoke<boolean>("is_elevated");
+  }, []);
+
+  const relaunchAsAdmin = useCallback(async () => {
+    await invoke("relaunch_as_admin");
+  }, []);
+
   useEffect(() => {
     void refreshHardwareProfile();
   }, [refreshHardwareProfile]);
@@ -489,5 +544,11 @@ export function useHardware() {
     writeAiPerfLog,
     readAiPerfLogs,
     openAiLogsDir,
+    getEcramMap,
+    getIotRegionHex,
+    writeIotHex,
+    readEcramRaw,
+    isElevated,
+    relaunchAsAdmin,
   };
 }

@@ -83,3 +83,78 @@ pub async fn get_iot_region_hex(region: String) -> Result<String, String> {
         .map(|bytes| bytes.iter().map(|b| format!("{b:02x}")).collect())
         .map_err(|e| e.to_string())
 }
+
+/// Write raw hex bytes into EC RAM through the DriverStore shim.
+#[tauri::command]
+pub async fn write_iot_hex(address: String, hex_data: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let addr = u64::from_str_radix(address.trim_start_matches("0x"), 16)
+            .map_err(|e| anyhow::anyhow!("invalid address: {e}"))?;
+
+        let normalized: String = hex_data
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace() && *c != ',' && *c != '-')
+            .collect();
+
+        anyhow::ensure!(
+            !normalized.is_empty() && normalized.len() % 2 == 0,
+            "hex_data must contain an even number of hex digits"
+        );
+
+        let bytes = (0..normalized.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&normalized[i..i + 2], 16).map_err(Into::into))
+            .collect::<anyhow::Result<Vec<u8>>>()?;
+
+        crate::hw::ecram::write_ecram_via_shim(addr, &bytes)
+    })
+    .await
+    .map_err(|e| format!("blocking task panicked: {e}"))?
+    .map_err(|e| e.to_string())
+}
+
+/// Read `count` bytes (1–256) from ECRAM at `address` via the DriverStore shim.
+///
+/// Returns the bytes as a lowercase hex string.  Requires the process to be
+/// running elevated (administrator).
+#[tauri::command]
+pub async fn read_ecram_raw(address: String, count: u32) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let addr = u64::from_str_radix(address.trim_start_matches("0x"), 16)
+            .map_err(|e| anyhow::anyhow!("invalid address: {e}"))?;
+
+        anyhow::ensure!(count >= 1 && count <= 256, "count must be 1–256");
+
+        let bytes = crate::hw::ecram::read_ecram_via_shim(addr, count as usize)?;
+        Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    })
+    .await
+    .map_err(|e| format!("blocking task panicked: {e}"))?
+    .map_err(|e: anyhow::Error| e.to_string())
+}
+
+/// Returns whether the current process is running with an elevated (Administrator) token.
+#[tauri::command]
+pub fn is_elevated() -> bool {
+    crate::hw::ecram::is_process_elevated()
+}
+
+/// Re-launch the application as administrator (UAC prompt) and exit the current instance.
+///
+/// This triggers the standard Windows UAC prompt.  If the user approves, a new
+/// elevated instance of the app starts and this instance exits.
+#[tauri::command]
+pub async fn relaunch_as_admin(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        crate::elev_bridge::relaunch_self_as_admin()?;
+        app.exit(0);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        return Err("re-launch as admin is only supported on Windows".to_string());
+    }
+    #[allow(unreachable_code)]
+    Ok(())
+}

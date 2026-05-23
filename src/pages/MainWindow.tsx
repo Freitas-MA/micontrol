@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ThemeMode } from "../App";
 import { t } from "../hooks/useI18n";
-import type { useHardware } from "../hooks/useHardware";
+import type { useHardware, EramMap, IotRegionName } from "../hooks/useHardware";
 import TrayPopup from "./TrayPopup";
 import { useSettings } from "../hooks/useSettings";
 import { useToast } from "../contexts/ToastContext";
@@ -928,7 +928,386 @@ function SetupTab({ hw }: { hw: Hardware }) {
         onRescan={hw.runHardwareDiscovery}
         onInstallDriver={hw.installDriver}
       />
+      <IotModulePanel hw={hw} />
     </>
+  );
+}
+
+const IOT_REGIONS: IotRegionName[] = ["ERAM", "SMA2", "IOT_STATUS", "IOT_SENSORS"];
+
+function formatHexPreview(hex: string, bytes = 16): string {
+  if (!hex) return "—";
+  const trimmed = hex.slice(0, bytes * 2);
+  const pairs = trimmed.match(/.{1,2}/g) ?? [];
+  return `${pairs.join(" ")}${hex.length > trimmed.length ? " ..." : ""}`;
+}
+
+function formatPerfProfile(value: number): string {
+  switch (value) {
+    case 0: return "Balance";
+    case 1: return "Performance";
+    case 2: return "Silence";
+    default: return `0x${value.toString(16).toUpperCase().padStart(2, "0")}`;
+  }
+}
+
+// Known writable ECRAM registers (ERAM base 0xFE0B0300)
+const ERAM_BASE = 0xFE0B0300;
+const ERAM_KNOWN_WRITES: { label: string; offset: number; values: { label: string; byte: number }[] }[] = [
+  {
+    label: "Performance Profile",
+    offset: 0x40,
+    values: [
+      { label: "Balanced", byte: 0x00 },
+      { label: "Performance", byte: 0x01 },
+      { label: "Silent", byte: 0x02 },
+    ],
+  },
+  {
+    label: "AI Limit (AILM)",
+    offset: 0x1B,
+    values: [
+      { label: "Enable AI Limit", byte: 0x04 },
+      { label: "Disable AI Limit", byte: 0x00 },
+    ],
+  },
+  {
+    label: "Long Battery Limit (LBLM)",
+    offset: 0x1B,
+    values: [
+      { label: "Enable Long Battery Limit", byte: 0x08 },
+      { label: "Disable Long Battery Limit", byte: 0x00 },
+    ],
+  },
+];
+
+function IotModulePanel({ hw }: { hw: Hardware }) {
+  const [elevated, setElevated] = useState<boolean | null>(null);
+  const [ecramMap, setEcramMap] = useState<EramMap | null>(null);
+  const [regions, setRegions] = useState<Partial<Record<IotRegionName, string>>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [relaunching, setRelaunching] = useState(false);
+
+  // Raw read state
+  const [rawReadAddr, setRawReadAddr] = useState("0xFE0B0300");
+  const [rawReadCount, setRawReadCount] = useState("16");
+  const [rawReadResult, setRawReadResult] = useState<string | null>(null);
+  const [rawReadLoading, setRawReadLoading] = useState(false);
+
+  // Raw write state
+  const [writeAddress, setWriteAddress] = useState("0xFE0B0300");
+  const [writeHex, setWriteHex] = useState("");
+  const [writeStatus, setWriteStatus] = useState<string | null>(null);
+
+  const checkElevation = useCallback(async () => {
+    try {
+      const elev = await hw.isElevated();
+      setElevated(elev);
+    } catch {
+      setElevated(false);
+    }
+  }, [hw]);
+
+  const refreshIot = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [map, ...hexes] = await Promise.all([
+        hw.getEcramMap(),
+        ...IOT_REGIONS.map((region) => hw.getIotRegionHex(region)),
+      ]);
+      setEcramMap(map);
+      setRegions({
+        ERAM: hexes[0],
+        SMA2: hexes[1],
+        IOT_STATUS: hexes[2],
+        IOT_SENSORS: hexes[3],
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [hw]);
+
+  useEffect(() => {
+    void checkElevation().then(() => {
+      if (elevated !== false) void refreshIot();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (elevated === true) void refreshIot();
+  }, [elevated, refreshIot]);
+
+  const handleRelaunch = useCallback(async () => {
+    setRelaunching(true);
+    try {
+      await hw.relaunchAsAdmin();
+    } catch (e) {
+      setRelaunching(false);
+      setError(`Re-launch failed: ${String(e)}`);
+    }
+  }, [hw]);
+
+  const handleKnownWrite = useCallback(async (offset: number, byte: number) => {
+    const addr = `0x${(ERAM_BASE + offset).toString(16).toUpperCase()}`;
+    try {
+      await hw.writeIotHex(addr, byte.toString(16).padStart(2, "0"));
+      setTimeout(() => void refreshIot(), 300);
+    } catch (e) {
+      setError(`Write failed: ${String(e)}`);
+    }
+  }, [hw, refreshIot]);
+
+  const handleRawRead = useCallback(async () => {
+    setRawReadLoading(true);
+    setRawReadResult(null);
+    try {
+      const count = parseInt(rawReadCount, 10);
+      const hex = await hw.readEcramRaw(rawReadAddr, count);
+      // Format as hex dump (16 bytes per line)
+      const bytes = (hex.match(/.{1,2}/g) ?? []);
+      const addrBase = parseInt(rawReadAddr.replace(/^0x/i, ""), 16) || 0;
+      const lines: string[] = [];
+      for (let i = 0; i < bytes.length; i += 16) {
+        const lineAddr = `0x${(addrBase + i).toString(16).toUpperCase().padStart(8, "0")}`;
+        const lineHex = bytes.slice(i, i + 16).join(" ");
+        const lineAscii = bytes.slice(i, i + 16)
+          .map((b) => { const c = parseInt(b, 16); return c >= 0x20 && c < 0x7F ? String.fromCharCode(c) : "."; })
+          .join("");
+        lines.push(`${lineAddr}: ${lineHex.padEnd(47)}  ${lineAscii}`);
+      }
+      setRawReadResult(lines.join("\n"));
+    } catch (e) {
+      setRawReadResult(`Error: ${String(e)}`);
+    } finally {
+      setRawReadLoading(false);
+    }
+  }, [hw, rawReadAddr, rawReadCount]);
+
+  // ── Not-elevated gate ─────────────────────────────────────────────────────
+  if (elevated === false) {
+    return (
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="card-title" style={{ marginBottom: 4 }}>IoT Module</div>
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", padding: "16px 0" }}>
+          <span style={{ fontSize: 40, lineHeight: 1 }}>🔒</span>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>Administrator required</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16, maxWidth: 420 }}>
+              IoTDriver requires the process to have an elevated token. Being logged in as an
+              administrator is not enough — the app must be launched with UAC elevation.
+              Click below to restart MiControl as administrator.
+            </div>
+            {error && (
+              <div style={{ fontSize: 12, color: "var(--error)", marginBottom: 10 }}>{error}</div>
+            )}
+            <button
+              className="btn-primary"
+              onClick={() => void handleRelaunch()}
+              disabled={relaunching}
+              style={{ minWidth: 240 }}
+            >
+              {relaunching ? "Waiting for UAC…" : "Re-launch as Administrator"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Elevated: full panel ──────────────────────────────────────────────────
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div className="card-title" style={{ marginBottom: 2 }}>
+            IoT Module
+            {elevated && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--success, #4caf50)", fontWeight: 500 }}>● Elevated</span>}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            Full ECRAM access via IoTDriver. Read/write decoded registers and raw physical memory.
+          </div>
+        </div>
+        <button className="btn-secondary" onClick={() => void refreshIot()} disabled={loading}>
+          {loading ? "Reading…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{
+          marginBottom: 14,
+          padding: "10px 14px",
+          borderRadius: 10,
+          background: "color-mix(in srgb, var(--error) 10%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--error) 30%, transparent)",
+          fontSize: 13,
+          color: "var(--error)",
+        }}>
+          {error}
+        </div>
+      )}
+
+      {ecramMap && (
+        <>
+          {/* Decoded registers */}
+          <div className="grid-2" style={{ marginBottom: 14 }}>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-title" style={{ fontSize: 13 }}>System State</div>
+              <div className="stat-row"><span className="stat-label">AC connected</span><span className="stat-value">{ecramMap.ac_connected ? "Yes" : "No"}</span></div>
+              <div className="stat-row"><span className="stat-label">Adapter power</span><span className="stat-value">{ecramMap.ac_adapter_w} W</span></div>
+              <div className="stat-row"><span className="stat-label">Battery current</span><span className="stat-value">{ecramMap.battery_current_ma} mA</span></div>
+              <div className="stat-row"><span className="stat-label">Battery voltage</span><span className="stat-value">{ecramMap.battery_voltage_mv} mV</span></div>
+              <div className="stat-row"><span className="stat-label">Battery capacity</span><span className="stat-value">{ecramMap.battery_capacity_mah} mAh</span></div>
+              <div className="stat-row"><span className="stat-label">Charge limit</span><span className="stat-value">{ecramMap.charge_threshold_pct} %</span></div>
+              <div className="stat-row"><span className="stat-label">Battery temp</span><span className="stat-value">{ecramMap.battery_temp_c} °C</span></div>
+              <div className="stat-row"><span className="stat-label">CPU temp</span><span className="stat-value">{ecramMap.cpu_temp_c} °C</span></div>
+              <div className="stat-row"><span className="stat-label">CPU power</span><span className="stat-value">{ecramMap.cpu_power_w} W</span></div>
+              <div className="stat-row"><span className="stat-label">Fan 1 RPM</span><span className="stat-value">{ecramMap.fan_rpm}</span></div>
+              {ecramMap.fan2_rpm > 0 && <div className="stat-row"><span className="stat-label">Fan 2 RPM</span><span className="stat-value">{ecramMap.fan2_rpm}</span></div>}
+            </div>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-title" style={{ fontSize: 13 }}>Mode / Limits (decoded)</div>
+              <div className="stat-row"><span className="stat-label">Performance profile</span><span className="stat-value">{formatPerfProfile(ecramMap.perf_profile)} (0x{ecramMap.perf_profile.toString(16).toUpperCase()})</span></div>
+              <div className="stat-row"><span className="stat-label">TDP override</span><span className="stat-value">{ecramMap.tdp_w} W</span></div>
+              <div className="stat-row"><span className="stat-label">Smart profile</span><span className="stat-value">{ecramMap.smart_mode_profile ?? "—"}</span></div>
+              <div className="stat-row"><span className="stat-label">SMMT</span><span className="stat-value">0x{ecramMap.smart_mode_type.toString(16).toUpperCase().padStart(2, "0")}</span></div>
+              <div className="stat-row"><span className="stat-label">SMMD</span><span className="stat-value">0x{ecramMap.smart_mode_data.toString(16).toUpperCase().padStart(2, "0")}</span></div>
+              <div className="stat-row"><span className="stat-label">QFAN</span><span className="stat-value">0x{ecramMap.qfan_mode.toString(16).toUpperCase().padStart(2, "0")}</span></div>
+              <div className="stat-row"><span className="stat-label">AI limit (AILM)</span><span className="stat-value">{ecramMap.ai_limit_enabled ? "Enabled" : "Disabled"}</span></div>
+              <div className="stat-row"><span className="stat-label">Long battery limit</span><span className="stat-value">{ecramMap.long_battery_limit_enabled ? "Enabled" : "Disabled"}</span></div>
+              <div className="stat-row"><span className="stat-label">Display brightness</span><span className="stat-value">{ecramMap.display_brightness_level}</span></div>
+              <div className="stat-row"><span className="stat-label">KB backlight</span><span className="stat-value">{ecramMap.keyboard_backlight_level}</span></div>
+              <div className="stat-row"><span className="stat-label">control_flags[0x1B]</span><span className="stat-value">0x{ecramMap.control_flags_1b.toString(16).toUpperCase().padStart(2, "0")}</span></div>
+            </div>
+          </div>
+
+          {/* Known-safe write controls */}
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card-title" style={{ fontSize: 13 }}>Write Controls (known-safe registers)</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
+              Direct ECRAM writes via IoTDriver. Changes take effect immediately; some may require a fan/profile cycle to apply.
+            </div>
+            <div style={{ display: "grid", gap: 12 }}>
+              {ERAM_KNOWN_WRITES.map((reg) => (
+                <div key={reg.label} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, minWidth: 180 }}>
+                    {reg.label}
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginLeft: 6 }}>
+                      +0x{reg.offset.toString(16).toUpperCase().padStart(2, "0")}
+                    </span>
+                  </span>
+                  {reg.values.map((v) => (
+                    <button
+                      key={v.label}
+                      className="btn-secondary"
+                      style={{ fontSize: 11, padding: "4px 10px" }}
+                      onClick={() => void handleKnownWrite(reg.offset, v.byte)}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Raw region dumps */}
+      <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
+        {IOT_REGIONS.map((region) => (
+          <details key={region} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px", background: "var(--surface-2)" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 500, fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>{region}</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)" }}>
+                {formatHexPreview(regions[region] ?? "")}
+              </span>
+            </summary>
+            <pre style={{ marginTop: 8, fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--text-muted)" }}>
+              {regions[region] ?? "No data"}
+            </pre>
+          </details>
+        ))}
+      </div>
+
+      {/* Raw read tool */}
+      <details style={{ marginBottom: 10 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 13, padding: "8px 0" }}>
+          Raw Read — arbitrary address
+        </summary>
+        <div className="card" style={{ marginTop: 8, marginBottom: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Physical address (hex)</div>
+              <input className="text-input" value={rawReadAddr} onChange={(e) => setRawReadAddr(e.target.value)} placeholder="0xFE0B0300" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Bytes (1–256)</div>
+              <input className="text-input" value={rawReadCount} onChange={(e) => setRawReadCount(e.target.value)} placeholder="16" style={{ width: 72 }} />
+            </div>
+            <button className="btn-secondary" disabled={rawReadLoading} onClick={() => void handleRawRead()}>
+              {rawReadLoading ? "Reading…" : "Read"}
+            </button>
+          </div>
+          {rawReadResult && (
+            <pre style={{ fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--text-muted)", marginTop: 4, fontFamily: "var(--font-mono)" }}>
+              {rawReadResult}
+            </pre>
+          )}
+        </div>
+      </details>
+
+      {/* Raw write tool */}
+      <details>
+        <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 13, padding: "8px 0" }}>
+          Raw Write — arbitrary address
+          <span style={{ fontSize: 11, color: "var(--warning, #ff9800)", marginLeft: 8, fontWeight: 400 }}>⚠ danger zone</span>
+        </summary>
+        <div className="card" style={{ marginTop: 8, marginBottom: 0 }}>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
+            Direct write to any physical address via IOCTL 0x22E004. Use only with verified-safe offsets.
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <input className="text-input" value={writeAddress} onChange={(e) => setWriteAddress(e.target.value)} placeholder="0xFE0B0300" />
+            <textarea
+              className="text-input"
+              value={writeHex}
+              onChange={(e) => setWriteHex(e.target.value)}
+              placeholder="hex bytes e.g. 01 02 03 04"
+              rows={3}
+              style={{ resize: "vertical", fontFamily: "var(--font-mono)", fontSize: 12 }}
+            />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                className="btn-secondary"
+                disabled={loading || !writeHex.trim()}
+                onClick={async () => {
+                  setWriteStatus(null);
+                  try {
+                    await hw.writeIotHex(writeAddress, writeHex);
+                    setWriteStatus("Write OK");
+                    setTimeout(() => void refreshIot(), 200);
+                  } catch (e) {
+                    setWriteStatus(`Write failed: ${String(e)}`);
+                  }
+                }}
+              >
+                Write
+              </button>
+              {writeStatus && (
+                <span style={{ fontSize: 12, color: writeStatus.startsWith("Write failed") ? "var(--error)" : "var(--success, #4caf50)" }}>
+                  {writeStatus}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
   );
 }
 
