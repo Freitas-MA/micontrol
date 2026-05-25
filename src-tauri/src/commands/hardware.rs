@@ -61,11 +61,7 @@ pub async fn get_perf_debug() -> Result<PerfDebugInfo, String> {
     Ok(hw_perf_debug())
 }
 
-/// Read all ACPI ERAM fields via IoTDriver (direct or shim path).
-///
-/// On first call the shim (`ecram_shim.exe`) is deployed to the IoTDriver
-/// DriverStore directory using SeRestorePrivilege.  Subsequent calls skip
-/// deployment if the binary is already current.
+/// Read all ACPI ERAM fields via direct IoTDriver IOCTL access.
 ///
 /// Returns the decoded `EramMap` with all known register fields.
 #[tauri::command]
@@ -76,19 +72,19 @@ pub async fn get_ecram_map() -> Result<crate::hw::ecram::EramMap, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Read a named IoT region through the DriverStore shim and return it as hex.
+/// Read a named IoT region via direct IoTDriver IOCTL and return it as hex.
 ///
 /// Supported values: `ERAM`, `SMA2`, `IOT_STATUS`, `IOT_SENSORS`.
 #[tauri::command]
 pub async fn get_iot_region_hex(region: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || crate::hw::ecram::read_named_region_via_shim(&region))
+    tokio::task::spawn_blocking(move || crate::hw::ecram::read_named_region(&region))
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
         .map(|bytes| bytes.iter().map(|b| format!("{b:02x}")).collect())
         .map_err(|e| e.to_string())
 }
 
-/// Write raw hex bytes into EC RAM through the DriverStore shim.
+/// Write raw hex bytes into EC RAM via direct IoTDriver IOCTL.
 #[tauri::command]
 pub async fn write_iot_hex(address: String, hex_data: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
@@ -131,14 +127,14 @@ pub async fn write_iot_hex(address: String, hex_data: String) -> Result<(), Stri
             );
         }
 
-        crate::hw::ecram::write_ecram_via_shim(addr, &bytes)
+        crate::hw::ecram::write_ecram(addr, &bytes)
     })
     .await
     .map_err(|e| format!("blocking task panicked: {e}"))?
     .map_err(|e| e.to_string())
 }
 
-/// Read `count` bytes (1–256) from ECRAM at `address` via the DriverStore shim.
+/// Read `count` bytes (1–256) from ECRAM at `address` via direct IoTDriver IOCTL.
 ///
 /// Returns the bytes as a lowercase hex string.  Requires the process to be
 /// running elevated (administrator).
@@ -150,7 +146,7 @@ pub async fn read_ecram_raw(address: String, count: u32) -> Result<String, Strin
 
         anyhow::ensure!(count >= 1 && count <= 256, "count must be 1–256");
 
-        let bytes = crate::hw::ecram::read_ecram_via_shim(addr, count as usize)?;
+        let bytes = crate::hw::ecram::read_ecram(addr, count as usize)?;
         Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
     })
     .await

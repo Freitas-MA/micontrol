@@ -23,7 +23,28 @@ use crate::hw::update::{
 
 #[tauri::command]
 pub async fn get_battery_info() -> Result<BatteryInfo, String> {
-    hw_get_battery().map_err(|e| e.to_string())
+    let started = std::time::Instant::now();
+    log::trace!(target: "cmd::system", "get_battery_info: start");
+    let result = hw_get_battery().map_err(|e| e.to_string());
+    match &result {
+        Ok(info) => log::trace!(
+            target: "cmd::system",
+            "get_battery_info: ok plugged={} charging={} voltage_mv={} charge_rate_mw={} ac_input_power_mw={:?} elapsed_ms={}",
+            info.is_plugged,
+            info.is_charging,
+            info.voltage_mv,
+            info.charge_rate_mw,
+            info.ac_input_power_mw,
+            started.elapsed().as_millis()
+        ),
+        Err(error) => log::warn!(
+            target: "cmd::system",
+            "get_battery_info: failed after {} ms: {}",
+            started.elapsed().as_millis(),
+            error
+        ),
+    }
+    result
 }
 
 #[tauri::command]
@@ -99,7 +120,28 @@ pub async fn set_fan_mode(mode: FanMode, speed_percent: u8) -> Result<(), String
 
 #[tauri::command]
 pub async fn get_touchpad_info() -> Result<TouchpadInfo, String> {
-    hw_get_touchpad().map_err(|e| e.to_string())
+    let started = std::time::Instant::now();
+    log::trace!(target: "cmd::system", "get_touchpad_info: start");
+    let result = hw_get_touchpad().map_err(|e| e.to_string());
+    match &result {
+        Ok(info) => log::trace!(
+            target: "cmd::system",
+            "get_touchpad_info: ok sensitivity={:?} haptics={} gesture_screenshot={} repress={} edge_slide={} elapsed_ms={}",
+            info.sensitivity,
+            info.haptics_enabled,
+            info.gesture_screenshot,
+            info.trackpad_repress,
+            info.edge_slide,
+            started.elapsed().as_millis()
+        ),
+        Err(error) => log::warn!(
+            target: "cmd::system",
+            "get_touchpad_info: failed after {} ms: {}",
+            started.elapsed().as_millis(),
+            error
+        ),
+    }
+    result
 }
 
 #[tauri::command]

@@ -1,0 +1,6 @@
+{
+  "scenario": "scenarioA",
+  "success": false,
+  "reason": "micontrol.exe not detected",
+  "logFile": "C:\\Users\\mafsc\\Documents\\Projects\\miPC\\micontrol\\.bench\\.bench\\scenarioA.log"
+}

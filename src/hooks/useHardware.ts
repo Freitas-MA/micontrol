@@ -327,11 +327,31 @@ export function useHardware() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    // Poll every 2 s so external hardware changes (Fn brightness keys,
-    // Windows power events, fan speed fluctuations) are reflected quickly.
-    const interval = setInterval(() => void refresh(), 2000);
-    return () => clearInterval(interval);
+    const refreshIfVisible = () => {
+      // The tray popup window is pre-created and often kept hidden.
+      // Skip polling while hidden to avoid background WMI/query churn.
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+      void refresh();
+    };
+
+    refreshIfVisible();
+    // Poll every 2 s while the webview is visible so external hardware changes
+    // (Fn brightness keys, power events, fan fluctuations) stay responsive.
+    const interval = setInterval(refreshIfVisible, 2000);
+
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearInterval(interval);
+    };
   }, [refresh]);
 
   const setPerformanceMode = useCallback(async (mode: PerformanceMode) => {

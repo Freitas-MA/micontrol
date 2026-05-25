@@ -91,6 +91,8 @@ static DETECTED_VK: AtomicU32 = AtomicU32::new(0);
 /// Timestamp (ms) of the last WMI HID action dispatched.  Used to debounce
 /// key-repeat events (IoTDriver fires active=true repeatedly while held).
 static LAST_WMI_ACTION_MS: AtomicU64 = AtomicU64::new(0);
+/// Avoid spamming the same admin guidance on every startup/retry.
+static VCHID_ACCESS_DENIED_LOGGED: AtomicBool = AtomicBool::new(false);
 
 // ── RemapToKey state ─────────────────────────────────────────────────────────
 
@@ -1554,11 +1556,18 @@ fn start_virtual_control_hid() {
                 Err(_) => {
                     let code = GetLastError();
                     if code == ERROR_ACCESS_DENIED {
-                        log::warn!(
-                            "[hotkeys] VirtualControlHID: access denied \
-                            \u{2014} run micontrol as Administrator to enable \
-                            Xiaomi special keys (Fn+F7 / Xiaomi / Copilot)"
-                        );
+                        if VCHID_ACCESS_DENIED_LOGGED
+                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                            .is_ok()
+                        {
+                            log::warn!(
+                                "[hotkeys] VirtualControlHID: access denied \
+                                \u{2014} run micontrol as Administrator to enable \
+                                Xiaomi special keys (Fn+F7 / Xiaomi / Copilot)"
+                            );
+                        } else {
+                            log::debug!("[hotkeys] VirtualControlHID: access denied (suppressed)");
+                        }
                     } else if code.0 == 1056 {
                         // ERROR_SERVICE_ALREADY_RUNNING
                         log::info!("[hotkeys] VirtualControlHID already running");

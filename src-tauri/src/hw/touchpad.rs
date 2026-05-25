@@ -61,6 +61,11 @@ static GESTURE_SCREENSHOT_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Whether the left/right edge slide gesture is currently enabled.
 #[cfg(windows)]
 static EDGE_SLIDE_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Emergency stability switch: keep cursor movement untouched even during
+/// edge-slide handling. This avoids pointer conflicts on some touchpad/driver
+/// stacks where WM_MOUSEMOVE suppression causes jumpy behavior.
+#[cfg(windows)]
+const EDGE_POINTER_SUPPRESSION: bool = false;
 /// True while an edge-slide gesture is actively tracking a contact.
 /// Used by the WH_MOUSE_LL hook proc to suppress cursor movement without
 /// accessing the thread-local RefCell (which may be mutably borrowed).
@@ -90,6 +95,15 @@ pub fn get_touchpad_info() -> Result<TouchpadInfo> {
         trackpad_repress: false,
         edge_slide: false,
     });
+    log::trace!(
+        target: "hw::touchpad",
+        "get_touchpad_info: sensitivity={:?} haptics={} gesture_screenshot={} repress={} edge_slide={}",
+        info.sensitivity,
+        info.haptics_enabled,
+        info.gesture_screenshot,
+        info.trackpad_repress,
+        info.edge_slide
+    );
     Ok(info)
 }
 
@@ -531,10 +545,8 @@ unsafe fn win_gesture_loop() {
         log::info!("[gesture] Raw Input gesture listener active");
     }
 
-    // Install a low-level mouse hook to suppress WM_MOUSEMOVE while an edge
-    // gesture is active.  The hook proc runs on this thread (message loop) so
-    // it can safely read the thread-local GESTURE_STATE.
-    {
+    // Install mouse suppression hook only when explicitly enabled.
+    if EDGE_POINTER_SUPPRESSION {
         use windows::Win32::UI::WindowsAndMessaging::{SetWindowsHookExW, WINDOWS_HOOK_ID};
         match SetWindowsHookExW(
             WINDOWS_HOOK_ID(14), // WH_MOUSE_LL
@@ -550,6 +562,8 @@ unsafe fn win_gesture_loop() {
             }
             Err(e) => log::warn!("[gesture] Failed to install mouse hook: {e}"),
         }
+    } else {
+        log::info!("[gesture] Pointer suppression disabled for edge-slide stability");
     }
 
     // Message pump — WM_INPUT messages are delivered here.
@@ -591,6 +605,10 @@ unsafe extern "system" fn mouse_hook_proc(
     use windows::Win32::Foundation::LRESULT;
     use windows::Win32::UI::WindowsAndMessaging::{CallNextHookEx, WM_MOUSEMOVE};
 
+    if !EDGE_POINTER_SUPPRESSION {
+        return CallNextHookEx(None, code, wparam, lparam);
+    }
+
     if code >= 0 && wparam.0 as u32 == WM_MOUSEMOVE {
         // Use the dedicated atomic — avoids touching the RefCell which may
         // already be mutably borrowed on this thread (gesture loop).
@@ -618,6 +636,13 @@ struct GestureState {
 
     // Edge slide
     edge: Option<EdgeSlideState>,
+    /// Whether a single-finger contact session is currently active.
+    edge_contact_active: bool,
+    /// Side where the current contact session started (None = center start).
+    edge_contact_start_side: Option<EdgeSide>,
+    /// Consecutive frames without a valid single-finger contact.
+    /// Used to preserve edge state across brief contact losses (palm rejection).
+    edge_contact_lost_frames: u8,
 }
 
 #[cfg(windows)]
@@ -630,6 +655,9 @@ impl Default for GestureState {
             five_start: None,
             screenshot_cooldown: None,
             edge: None,
+            edge_contact_active: false,
+            edge_contact_start_side: None,
+            edge_contact_lost_frames: 0,
         }
     }
 }
@@ -637,15 +665,24 @@ impl Default for GestureState {
 #[cfg(windows)]
 struct EdgeSlideState {
     side: EdgeSide,
+    /// X at gesture/session start, used to infer vertical-intent dominance.
+    start_x: i32,
+    /// Y at gesture/session start, used to infer vertical-intent dominance.
+    start_y: i32,
+    /// Last X sample for drift tracking.
+    last_x: i32,
     last_y: i32,
     /// Accumulated Y delta waiting to reach the next action threshold.
     accum: i32,
+    /// False while we are only "armed"; true after intentional edge-slide capture.
+    captured: bool,
     /// Consecutive WM_INPUT frames where contact_count != 1.
     /// Edge state is preserved across brief gaps (palm rejection artefacts).
     lost_frames: u8,
 }
 
 #[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EdgeSide {
     Left,
     Right,
@@ -696,11 +733,48 @@ fn hid_hardware_key(path: &str) -> Option<String> {
 }
 
 #[cfg(windows)]
+fn hid_vid_pid_key(path: &str) -> Option<String> {
+    let normalized = normalize_hid_path(path);
+    let mut parts = normalized.split('#');
+    let _prefix = parts.next()?;
+    let hardware = parts.next()?.to_ascii_lowercase();
+    let vid_pos = hardware.find("vid_")?;
+    let pid_pos = hardware.find("pid_")?;
+    let vid = hardware.get(vid_pos..vid_pos.saturating_add(8))?;
+    let pid = hardware.get(pid_pos..pid_pos.saturating_add(8))?;
+    Some(format!("{vid}&{pid}"))
+}
+
+#[cfg(windows)]
+fn hid_instance_root(path: &str) -> Option<String> {
+    let normalized = normalize_hid_path(path);
+    let mut parts = normalized.split('#');
+    let _prefix = parts.next()?;
+    let _hardware = parts.next()?;
+    let instance = parts.next()?.to_ascii_lowercase();
+    if instance.contains("&0&") {
+        if let Some((root, _tail)) = instance.rsplit_once('&') {
+            return Some(root.to_string());
+        }
+    }
+    Some(instance)
+}
+
+#[cfg(windows)]
 fn is_touchpad_device_path(raw_input_path: &str, touchpad_path: &str) -> bool {
     let raw_norm = normalize_hid_path(raw_input_path);
     let tp_norm = normalize_hid_path(touchpad_path);
     if raw_norm == tp_norm {
         return true;
+    }
+    if let (Some(raw_vidpid), Some(tp_vidpid)) =
+        (hid_vid_pid_key(&raw_norm), hid_vid_pid_key(&tp_norm))
+    {
+        let raw_root = hid_instance_root(&raw_norm);
+        let tp_root = hid_instance_root(&tp_norm);
+        if raw_vidpid == tp_vidpid && raw_root.is_some() && raw_root == tp_root {
+            return true;
+        }
     }
     match (hid_hardware_key(&raw_norm), hid_hardware_key(&tp_norm)) {
         (Some(raw_key), Some(tp_key)) => raw_key == tp_key,
@@ -792,13 +866,25 @@ unsafe fn process_raw_input(lparam: isize) {
         }
         let raw_name = query_raw_input_device_name((*raw).header.hDevice);
         let expected_touchpad = touchpad_hid_path();
-        let matched = raw_name
-            .as_deref()
-            .map(|name| is_touchpad_device_path(name, &expected_touchpad))
-            .unwrap_or(false);
+        let Some(name) = raw_name.as_deref() else {
+            // Device name query may transiently fail. Be conservative: ignore
+            // this frame to avoid accepting packets from the wrong HID source.
+            // Do not cache this result so a later successful query can recover.
+            log::trace!(target: "hw::touchpad", "raw input device name query failed for device_key={device_key}");
+            return false;
+        };
+        let matched = is_touchpad_device_path(name, &expected_touchpad);
         cache.insert(device_key, matched);
+        log::trace!(
+            target: "hw::touchpad",
+            "raw input device filter: key={} matched={} raw={} expected={}",
+            device_key,
+            matched,
+            name,
+            expected_touchpad
+        );
         if !matched {
-            log::debug!("[gesture] Ignoring non-touchpad raw device: {:?}", raw_name);
+            log::debug!("[gesture] Ignoring non-touchpad raw device: {name}");
         }
         matched
     });
@@ -806,12 +892,16 @@ unsafe fn process_raw_input(lparam: isize) {
         return;
     }
 
-    // If edge-slide has been disabled, force-release suppression and stale state.
-    if !EDGE_SLIDE_ENABLED.load(Ordering::Relaxed)
-        && EDGE_GESTURE_ACTIVE.swap(false, Ordering::Relaxed)
-    {
+    // If edge-slide has been disabled, force-release suppression and clear
+    // any stale in-progress session state.
+    if !EDGE_SLIDE_ENABLED.load(Ordering::Relaxed) {
+        EDGE_GESTURE_ACTIVE.store(false, Ordering::Relaxed);
         GESTURE_STATE.with(|state| {
-            state.borrow_mut().edge = None;
+            let mut s = state.borrow_mut();
+            s.edge = None;
+            s.edge_contact_active = false;
+            s.edge_contact_start_side = None;
+            s.edge_contact_lost_frames = 0;
         });
     }
 
@@ -857,6 +947,13 @@ unsafe fn process_raw_input(lparam: isize) {
     if hid.dwSizeHid == 0 || hid.dwCount == 0 {
         return;
     }
+    log::trace!(
+        target: "hw::touchpad",
+        "accepted raw touchpad frame: device_key={} size_hid={} count={}",
+        device_key,
+        hid.dwSizeHid,
+        hid.dwCount
+    );
     let report = std::slice::from_raw_parts(hid.bRawData.as_ptr(), hid.dwSizeHid as usize);
 
     // ── Read logical maxima once per device (for edge/step sizing) ────────────
@@ -946,6 +1043,7 @@ unsafe fn process_raw_input(lparam: isize) {
     // finger is physically touching the pad; its absence means the finger has
     // lifted (even when contact_count still shows 1 due to BLTP7853 quirks).
     let mut tip_switch = false;
+    let mut tip_switch_known = false;
     if first_lc > 0 {
         let mut usage_buf = [0u16; 8]; // 8 slots >> max PTP buttons per contact
         let mut usage_len: u32 = usage_buf.len() as u32;
@@ -961,6 +1059,7 @@ unsafe fn process_raw_input(lparam: isize) {
             &mut report_mut,
         );
         if r.is_ok() {
+            tip_switch_known = true;
             let n = usage_len.min(8) as usize;
             tip_switch = usage_buf[..n].contains(&0x0042); // TipSwitch
         }
@@ -984,7 +1083,7 @@ unsafe fn process_raw_input(lparam: isize) {
                 contact_count,
                 first_x as i32,
                 first_y as i32,
-                tip_switch,
+                tip_switch || !tip_switch_known,
             )
         })
     } else {
@@ -1011,7 +1110,10 @@ unsafe fn process_raw_input(lparam: isize) {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::{hid_hardware_key, is_touchpad_device_path, normalize_hid_path};
+    use super::{
+        handle_edge_slide, hid_hardware_key, hid_instance_root, hid_vid_pid_key,
+        is_touchpad_device_path, normalize_hid_path,
+    };
 
     #[test]
     fn normalize_hid_path_handles_case_and_prefix() {
@@ -1028,9 +1130,41 @@ mod tests {
     }
 
     #[test]
+    fn hid_vid_pid_key_handles_mi_and_collection_variants() {
+        let p1 =
+            r"\\?\hid#vid_3151&pid_8888&mi_01&col05#7&abc#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let p2 =
+            r"\\?\hid#vid_3151&pid_8888&mi_00&col01#7&def#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        assert_eq!(hid_vid_pid_key(p1).as_deref(), Some("vid_3151&pid_8888"));
+        assert_eq!(hid_vid_pid_key(p2).as_deref(), Some("vid_3151&pid_8888"));
+    }
+
+    #[test]
+    fn hid_instance_root_ignores_collection_suffix() {
+        let p = r"\\?\hid#vid_3151&pid_8888&mi_01&col05#7&5a6d3c2&0&0004#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        assert_eq!(hid_instance_root(p).as_deref(), Some("7&5a6d3c2&0"));
+    }
+
+    #[test]
     fn touchpad_path_match_accepts_same_device_different_collection() {
         let raw = r"\\?\hid#bltp7853&col01#5&abc#{4d1e55b2-f16f-11cf-88cb-001111000030}";
         let touchpad = r"\\?\hid#bltp7853&col04#5&abc#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        assert!(is_touchpad_device_path(raw, touchpad));
+    }
+
+    #[test]
+    fn touchpad_path_match_rejects_same_vid_pid_different_mi() {
+        let raw =
+            r"\\?\hid#vid_3151&pid_8888&mi_00&col01#7&abc#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let touchpad =
+            r"\\?\hid#vid_3151&pid_8888&mi_01&col05#7&def#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        assert!(!is_touchpad_device_path(raw, touchpad));
+    }
+
+    #[test]
+    fn touchpad_path_match_accepts_same_vid_pid_same_instance_root() {
+        let raw = r"\\?\hid#vid_3151&pid_8888&mi_01&col01#7&5a6d3c2&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let touchpad = r"\\?\hid#vid_3151&pid_8888&mi_01&col05#7&5a6d3c2&0&0004#{4d1e55b2-f16f-11cf-88cb-001111000030}";
         assert!(is_touchpad_device_path(raw, touchpad));
     }
 
@@ -1039,6 +1173,79 @@ mod tests {
         let raw = r"\\?\hid#elan2514&col01#7&def#{4d1e55b2-f16f-11cf-88cb-001111000030}";
         let touchpad = r"\\?\hid#bltp7853&col04#5&abc#{4d1e55b2-f16f-11cf-88cb-001111000030}";
         assert!(!is_touchpad_device_path(raw, touchpad));
+    }
+
+    #[test]
+    fn edge_slide_does_not_activate_if_touch_started_in_center() {
+        let mut state = super::GestureState::default();
+        // Touch starts in center.
+        let r1 = super::handle_edge_slide(&mut state, 1, 5000, 4000, true);
+        assert_eq!(r1, (0, 0));
+        assert!(state.edge.is_none());
+        // Same finger drifts into edge; still must remain normal pointer behavior.
+        let r2 = super::handle_edge_slide(&mut state, 1, 200, 3800, true);
+        assert_eq!(r2, (0, 0));
+        assert!(state.edge.is_none());
+    }
+
+    #[test]
+    fn edge_slide_activates_if_touch_started_in_edge() {
+        let mut state = super::GestureState::default();
+        let r = handle_edge_slide(&mut state, 1, 200, 4000, true);
+        assert_eq!(r, (0, 0));
+        assert!(state.edge.is_some());
+        assert!(!state.edge.as_ref().expect("edge state").captured);
+    }
+
+    #[test]
+    fn edge_slide_captures_only_after_clear_vertical_intent() {
+        let mut state = super::GestureState::default();
+        // Arm on edge-start, but do not capture immediately.
+        let _ = handle_edge_slide(&mut state, 1, 200, 4000, true);
+        assert!(!state.edge.as_ref().expect("edge state").captured);
+
+        // Small drift should still not capture.
+        let _ = handle_edge_slide(&mut state, 1, 240, 3992, true);
+        assert!(!state.edge.as_ref().expect("edge state").captured);
+
+        // Strong vertical intent with limited lateral drift captures.
+        let _ = handle_edge_slide(&mut state, 1, 240, 3600, true);
+        assert!(state.edge.as_ref().expect("edge state").captured);
+    }
+
+    #[test]
+    fn edge_slide_generates_steps_after_capture() {
+        let mut state = super::GestureState::default();
+        // Start in left edge.
+        let _ = handle_edge_slide(&mut state, 1, 200, 4000, true);
+        // Trigger capture with clear vertical movement.
+        let _ = handle_edge_slide(&mut state, 1, 220, 3860, true);
+        assert!(state.edge.as_ref().expect("edge state").captured);
+        // Continue moving up enough to generate at least one brightness step.
+        let (b, v) = handle_edge_slide(&mut state, 1, 220, 3500, true);
+        assert!(b > 0, "expected brightness step after capture");
+        assert_eq!(v, 0);
+    }
+
+    #[test]
+    fn edge_slide_still_captures_with_large_logical_range() {
+        let mut state = super::GestureState::default();
+        state.y_max = 65_535; // common PTP logical max
+        state.x_max = 65_535;
+
+        // Start in left-edge zone for this range.
+        let _ = handle_edge_slide(&mut state, 1, 2_000, 32_000, true);
+        assert!(state.edge.is_some());
+        assert!(!state.edge.as_ref().expect("edge state").captured);
+
+        // Moderate vertical swipe should now capture due to threshold clamp.
+        let _ = handle_edge_slide(&mut state, 1, 2_100, 31_700, true);
+        assert!(state.edge.as_ref().expect("edge state").captured);
+
+        // Additional motion should generate at least one step.
+        let (b, v) = handle_edge_slide(&mut state, 1, 2_100, 31_200, true);
+        assert!(b > 0, "expected brightness step with high y_max");
+        assert_eq!(v, 0);
     }
 }
 
@@ -1098,6 +1305,14 @@ fn handle_edge_slide(
     let no_contact = contact_count != 1 || !tip_switch;
 
     if no_contact {
+        if state.edge_contact_active {
+            state.edge_contact_lost_frames = state.edge_contact_lost_frames.saturating_add(1);
+            if state.edge_contact_lost_frames > GRACE_FRAMES {
+                state.edge_contact_active = false;
+                state.edge_contact_start_side = None;
+                state.edge_contact_lost_frames = 0;
+            }
+        }
         match &mut state.edge {
             Some(edge) => {
                 edge.lost_frames += 1;
@@ -1112,23 +1327,36 @@ fn handle_edge_slide(
     }
 
     let edge_thresh = state.x_max / 8; // 12.5% of width
-    let y_step = (state.y_max / 10).max(1); // 10% of height per action
-                                            // A Y jump larger than this in one frame means a new finger was placed
-                                            // (the touchpad sent no intermediate contact_count=0 report).
+    let y_step = (state.y_max / 24).clamp(28, 320); // ~4.2% of height per action
+                                                    // A Y jump larger than this in one frame means a new finger was placed
+                                                    // (the touchpad sent no intermediate contact_count=0 report).
     let jump_thresh = state.y_max * 15 / 100; // 15% of height
+                                              // Edge slide is only captured after clear vertical intent so the edge
+                                              // region continues to behave like a normal touchpad zone by default.
+    let activation_dy = (state.y_max / 80).clamp(12, 120); // ~1.25% of height
+
+    // Contact-session gating: edge slide can only start if the finger touch
+    // itself started in the edge initiation zone.
+    if !state.edge_contact_active {
+        state.edge_contact_active = true;
+        state.edge_contact_lost_frames = 0;
+        state.edge_contact_start_side = if x < edge_thresh {
+            Some(EdgeSide::Left)
+        } else if x > state.x_max - edge_thresh {
+            Some(EdgeSide::Right)
+        } else {
+            None
+        };
+    } else if state.edge_contact_lost_frames > 0 {
+        state.edge_contact_lost_frames = 0;
+    }
 
     match &mut state.edge {
         None => {
-            let side = if x < edge_thresh {
-                Some(EdgeSide::Left)
-            } else if x > state.x_max - edge_thresh {
-                Some(EdgeSide::Right)
-            } else {
-                None
-            };
+            let side = state.edge_contact_start_side;
             if let Some(side) = side {
-                log::info!(
-                    "[gesture] edge-slide started: side={} x={}/{} y={}",
+                log::debug!(
+                    "[gesture] edge-slide armed: side={} x={}/{} y={}",
                     match side {
                         EdgeSide::Left => "left",
                         EdgeSide::Right => "right",
@@ -1137,11 +1365,14 @@ fn handle_edge_slide(
                     state.x_max,
                     y
                 );
-                EDGE_GESTURE_ACTIVE.store(true, Ordering::Relaxed);
                 state.edge = Some(EdgeSlideState {
                     side,
+                    start_x: x,
+                    start_y: y,
+                    last_x: x,
                     last_y: y,
                     accum: 0,
+                    captured: false,
                     lost_frames: 0,
                 });
             }
@@ -1176,22 +1407,57 @@ fn handle_edge_slide(
 
             // Contact just restored after a brief tracking loss — re-anchor.
             if edge.lost_frames > 0 {
+                edge.last_x = x;
                 edge.last_y = y;
                 edge.lost_frames = 0;
                 return (0, 0);
             }
 
             let dy = edge.last_y - y; // positive = upward swipe
+            let _dx = x - edge.last_x;
+
+            if !edge.captured {
+                let total_dy = edge.start_y - y;
+                let total_dx = x - edge.start_x;
+                // Capture only when vertical movement is clear enough and
+                // stronger than lateral drift.
+                if total_dy.abs() >= activation_dy
+                    && (total_dy.abs() >= total_dx.abs()
+                        || total_dy.abs() >= activation_dy.saturating_mul(2))
+                {
+                    edge.captured = true;
+                    edge.accum = 0;
+                    edge.last_x = x;
+                    edge.last_y = y;
+                    EDGE_GESTURE_ACTIVE.store(true, Ordering::Relaxed);
+                    log::info!(
+                        "[gesture] edge-slide captured: side={} total_dy={} total_dx={}",
+                        match edge.side {
+                            EdgeSide::Left => "left",
+                            EdgeSide::Right => "right",
+                        },
+                        total_dy,
+                        total_dx,
+                    );
+                } else {
+                    // Stay armed but do not hijack pointer movement.
+                    edge.last_x = x;
+                    edge.last_y = y;
+                }
+                return (0, 0);
+            }
 
             // Large position jump → new finger placed without a contact_count=0 gap.
             // Re-anchor instead of calculating a bogus huge delta.
             if dy.abs() > jump_thresh {
                 log::debug!("[gesture] edge-slide position jump ({dy}), re-anchoring at y={y}");
+                edge.last_x = x;
                 edge.last_y = y;
                 edge.accum = 0;
                 return (0, 0);
             }
 
+            edge.last_x = x;
             edge.last_y = y;
             edge.accum += dy;
 

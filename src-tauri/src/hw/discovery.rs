@@ -260,6 +260,20 @@ fn load_or_discover(data_dir: Option<&Path>) -> HardwareProfile {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(p) = serde_json::from_str::<HardwareProfile>(&content) {
                     if !is_stale(p.discovered_at, 7) {
+                        #[cfg(windows)]
+                        {
+                            if let Some(tp) = p.touchpad_hid_path.as_deref() {
+                                if !is_touchpad_vendor_channel_path(tp) {
+                                    log::warn!(
+                                        "Cached touchpad_hid_path is no longer valid ({}). Re-discovering...",
+                                        tp
+                                    );
+                                    let profile = run_discovery();
+                                    save_profile(&profile, data_dir);
+                                    return profile;
+                                }
+                            }
+                        }
                         log::info!("Hardware profile loaded from {}", path.display());
                         return p;
                     }
@@ -397,37 +411,79 @@ fn probe_vhf_device() -> Option<String> {
 fn probe_touchpad_hid() -> Option<String> {
     #[cfg(windows)]
     {
-        // Standard HID interface GUID
-        let hid_guid = GUID {
-            data1: 0x4D1E55B2,
-            data2: 0xF16F,
-            data3: 0x11CF,
-            data4: [0x88, 0xCB, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30],
-        };
-        let paths = enumerate_device_interfaces(&hid_guid);
-        for path in &paths {
-            let path_lower = path.to_lowercase();
-            // Fast pre-filter: skip mice, keyboards, and well-known non-touchpad devices
+        let hid_entries = enumerate_hid_paths_with_caps();
+        let touchpad_roots: std::collections::HashSet<String> = hid_entries
+            .iter()
+            .filter(|entry| entry.caps.UsagePage == 0x000D && entry.caps.Usage == 0x0005)
+            .filter_map(|entry| hid_instance_root(&entry.path))
+            .collect();
+
+        // Primary strategy: choose a vendor-defined output-report HID whose
+        // instance root matches an actual touchpad digitizer collection.
+        let mut candidates: Vec<(i32, String, u16, u16)> = hid_entries
+            .iter()
+            .filter(|entry| entry.caps.UsagePage >= 0xFF00 && entry.caps.OutputReportByteLength > 0)
+            .filter_map(|entry| {
+                let lower = entry.path.to_ascii_lowercase();
+                if lower.contains("kbd")
+                    || lower.contains("keyboard")
+                    || lower.contains("mouse")
+                    || lower.contains("col01")
+                {
+                    return None;
+                }
+                let root = hid_instance_root(&entry.path)?;
+                if !touchpad_roots.contains(&root) {
+                    return None;
+                }
+                let mut score = 0;
+                if lower.contains("&col04#") {
+                    score += 30;
+                } else if lower.contains("&col05#") {
+                    score += 20;
+                }
+                if lower.contains("bltp") {
+                    score += 10;
+                }
+                score += entry.caps.OutputReportByteLength as i32;
+                Some((
+                    score,
+                    entry.path.clone(),
+                    entry.caps.UsagePage,
+                    entry.caps.OutputReportByteLength,
+                ))
+            })
+            .collect();
+
+        candidates.sort_by(|a, b| b.0.cmp(&a.0));
+        if let Some((_, path, usage_page, output_len)) = candidates.into_iter().next() {
+            log::info!(
+                "Touchpad HID found (touchpad-root matched): {} (UsagePage={:#X} OutputLen={})",
+                path,
+                usage_page,
+                output_len
+            );
+            return Some(path);
+        }
+
+        // Fallback: keep old behavior when we could not correlate by root.
+        for entry in &hid_entries {
+            let path_lower = entry.path.to_ascii_lowercase();
             if path_lower.contains("kbd")
                 || path_lower.contains("keyboard")
                 || path_lower.contains("mouse")
                 || path_lower.contains("col01")
-            // usually system controls
             {
                 continue;
             }
-            // Open and check HID capabilities
-            if let Some(caps) = hid_caps_for_path(path) {
-                // Vendor-defined usage page (0xFF00–0xFFFF) with output reports
-                if caps.UsagePage >= 0xFF00 && caps.OutputReportByteLength > 0 {
-                    log::info!(
-                        "Touchpad HID found: {} (UsagePage={:#X} OutputLen={})",
-                        path,
-                        caps.UsagePage,
-                        caps.OutputReportByteLength
-                    );
-                    return Some(path.clone());
-                }
+            if entry.caps.UsagePage >= 0xFF00 && entry.caps.OutputReportByteLength > 0 {
+                log::info!(
+                    "Touchpad HID found (fallback): {} (UsagePage={:#X} OutputLen={})",
+                    entry.path,
+                    entry.caps.UsagePage,
+                    entry.caps.OutputReportByteLength
+                );
+                return Some(entry.path.clone());
             }
         }
         log::warn!("Touchpad vendor HID channel not found during discovery");
@@ -764,6 +820,66 @@ fn no_window_command(program: &str) -> std::process::Command {
     cmd
 }
 
+#[cfg(windows)]
+#[derive(Clone)]
+struct HidPathCaps {
+    path: String,
+    caps: HIDP_CAPS,
+}
+
+#[cfg(windows)]
+fn enumerate_hid_paths_with_caps() -> Vec<HidPathCaps> {
+    let hid_guid = GUID {
+        data1: 0x4D1E55B2,
+        data2: 0xF16F,
+        data3: 0x11CF,
+        data4: [0x88, 0xCB, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30],
+    };
+    enumerate_device_interfaces(&hid_guid)
+        .into_iter()
+        .filter_map(|path| hid_caps_for_path(&path).map(|caps| HidPathCaps { path, caps }))
+        .collect()
+}
+
+#[cfg(windows)]
+fn hid_instance_root(path: &str) -> Option<String> {
+    let lower = path.to_ascii_lowercase();
+    let mut parts = lower.split('#');
+    let _prefix = parts.next()?;
+    let _hardware = parts.next()?;
+    let instance = parts.next()?.to_string();
+    if instance.contains("&0&") {
+        if let Some((root, _tail)) = instance.rsplit_once('&') {
+            return Some(root.to_string());
+        }
+    }
+    Some(instance)
+}
+
+#[cfg(windows)]
+fn is_touchpad_vendor_channel_path(path: &str) -> bool {
+    let target = path.to_ascii_lowercase();
+    let entries = enumerate_hid_paths_with_caps();
+    let touchpad_roots: std::collections::HashSet<String> = entries
+        .iter()
+        .filter(|entry| entry.caps.UsagePage == 0x000D && entry.caps.Usage == 0x0005)
+        .filter_map(|entry| hid_instance_root(&entry.path))
+        .collect();
+
+    entries.iter().any(|entry| {
+        if entry.path.to_ascii_lowercase() != target {
+            return false;
+        }
+        if !(entry.caps.UsagePage >= 0xFF00 && entry.caps.OutputReportByteLength > 0) {
+            return false;
+        }
+        if let Some(root) = hid_instance_root(&entry.path) {
+            return touchpad_roots.contains(&root);
+        }
+        false
+    })
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -815,5 +931,12 @@ mod tests {
         let p2: HardwareProfile = serde_json::from_str(&json).unwrap();
         assert_eq!(p2.device_model, Some("Test Device".into()));
         assert_eq!(p2.vhf_device_path, Some(r"\\?\some\path".into()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_hid_instance_root_parses_expected_segment() {
+        let p = r"\\?\hid#vid_3151&pid_8888&mi_01&col05#7&5a6d3c2&0&0004#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        assert_eq!(hid_instance_root(p).as_deref(), Some("7&5a6d3c2&0"));
     }
 }

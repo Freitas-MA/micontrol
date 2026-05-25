@@ -146,32 +146,14 @@ pub fn read_all() -> Result<Vec<u8>> {
 
 /// Try to extract AC adapter input power (in milliwatts) from ECRAM.
 ///
-/// Tries direct IoTDriver access first, then falls back to the DriverStore
-/// shim (`ecram_shim.exe`) which satisfies the driver's path-prefix check.
-///
-/// Returns `None` if both paths fail or the ADPW value is out of range.
+/// Reads ADPW (byte +0x81 of the ACPI ERAM at 0xFE0B0300) via direct IoTDriver
+/// IOCTL access.  Returns `None` if the driver is unavailable (not loaded,
+/// insufficient privileges) or the ADPW value is outside the plausible range
+/// (1–300 W).
 pub fn try_get_ac_power_mw() -> Option<i32> {
-    // Attempt 1: direct read (works only when our process is in the DriverStore dir)
-    if let Ok(eram) = read_ecram(ERAM_BASE, 0x100) {
-        let adpw = eram[ERAM_ADPW_OFFSET] as i32;
-        if adpw > 0 && adpw <= 300 {
-            return Some(adpw * 1000);
-        }
-    }
-
-    // Attempt 2: shim (deployed to the DriverStore dir, bypasses path check)
-    #[cfg(windows)]
-    match read_ecram_via_shim(ERAM_BASE, 0x100) {
-        Ok(eram) => {
-            let adpw = eram[ERAM_ADPW_OFFSET] as i32;
-            if adpw > 0 && adpw <= 300 {
-                return Some(adpw * 1000);
-            }
-        }
-        Err(e) => log::warn!("[ecram] ADPW shim read failed: {e:#}"),
-    }
-
-    None
+    let eram = read_ecram(ERAM_BASE, ERAM_SIZE).ok()?;
+    let adpw = eram[ERAM_ADPW_OFFSET] as i32;
+    if adpw > 0 && adpw <= 300 { Some(adpw * 1000) } else { None }
 }
 
 /// Return a hex dump string of all known ECRAM bytes for debugging.
@@ -359,150 +341,110 @@ fn read_ecram_inner(device_path: &str, phys_addr: u64, byte_count: usize) -> Res
     }
 }
 
-// ── Shim-based ECRAM access (bypasses IoTDriver path check) ──────────────────
-//
-// IoTDriver.sys calls `SeLocateProcessImageName` + `RtlPrefixUnicodeString` to
-// verify that the calling process's directory starts with the DriverStore prefix
-// of IoTDriver.sys itself.  We bypass this by deploying a small helper binary
-// (`ecram_shim.exe`) INTO the DriverStore directory so it passes the check.
-//
-// Deployment: uses `SeRestorePrivilege` + `FILE_FLAG_BACKUP_SEMANTICS` to copy
-// the shim to a directory owned by TrustedInstaller.
-// Invocation: spawns the shim as a child process, reads JSON from its stdout.
-
-/// Find the DriverStore directory that contains `IoTDriver.sys` by reading
-/// `HKLM\SYSTEM\CurrentControlSet\Services\IoTDriver\ImagePath`.
-///
-/// Returns e.g. `C:\Windows\System32\DriverStore\FileRepository\miiotdrv.inf_amd64_XXX\`
 #[cfg(windows)]
-pub fn find_iotdriver_store_dir() -> Result<std::path::PathBuf> {
-    use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
-
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let svc = hklm
-        .open_subkey("SYSTEM\\CurrentControlSet\\Services\\IoTDriver")
-        .context("IoTDriver service registry key not found — is the driver installed?")?;
-    let image_path: String = svc
-        .get_value("ImagePath")
-        .context("IoTDriver ImagePath value missing")?;
-
-    // Normalise `\SystemRoot\` → actual Windows directory
-    let windows_dir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-    let normalised = if image_path
-        .to_ascii_lowercase()
-        .starts_with("\\systemroot\\")
-    {
-        format!("{}{}", windows_dir, &image_path["\\SystemRoot".len()..])
-    } else if image_path.starts_with("\\??\\") {
-        image_path[4..].to_string()
-    } else {
-        image_path.clone()
+fn write_ecram_inner(device_path: &str, phys_addr: u64, data: &[u8]) -> Result<()> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        core::PCWSTR,
+        Win32::{
+            Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE},
+            Storage::FileSystem::{
+                CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE,
+                OPEN_EXISTING,
+            },
+            System::IO::DeviceIoControl,
+        },
     };
 
-    let path = std::path::PathBuf::from(normalised);
-    path.parent()
-        .map(|p| p.to_path_buf())
-        .ok_or_else(|| anyhow::anyhow!("Cannot derive DriverStore dir from: {image_path}"))
-}
+    let path_w: Vec<u16> = OsStr::new(device_path)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
 
-/// Deploy the helper executable to the IoTDriver DriverStore directory.
-///
-/// Uses `SeRestorePrivilege` + `FILE_FLAG_BACKUP_SEMANTICS` to write into the
-/// TrustedInstaller-owned directory.  No-ops if the deployed file is already
-/// current (same size as the source).
-///
-/// Returns the absolute path to the deployed shim.
-#[cfg(windows)]
-pub fn deploy_ecram_shim(dest_file_name: &str) -> Result<std::path::PathBuf> {
-    // Locate source shim (same directory as the running executable)
-    let exe = std::env::current_exe().context("current_exe")?;
-    let shim_src = exe
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Cannot find exe directory"))?
-        .join("ecram_shim.exe");
+    unsafe {
+        let handle = CreateFileW(
+            PCWSTR(path_w.as_ptr()),
+            (GENERIC_READ | GENERIC_WRITE).0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            HANDLE::default(),
+        )
+        .context("Open IoT driver device")?;
 
-    anyhow::ensure!(
-        shim_src.exists(),
-        "ecram_shim.exe not found at {shim_src:?} — build with `cargo build --bin ecram_shim`"
-    );
-
-    let driverstore_dir = find_iotdriver_store_dir()?;
-    let dest = driverstore_dir.join(dest_file_name);
-
-    // Skip if already up to date
-    if dest.exists() {
-        let src_len = std::fs::metadata(&shim_src)?.len();
-        if let Ok(dst_meta) = std::fs::metadata(&dest) {
-            if dst_meta.len() == src_len {
-                log::debug!("[ecram_shim] Already deployed at {dest:?}");
-                return Ok(dest);
-            }
+        if handle == INVALID_HANDLE_VALUE {
+            anyhow::bail!("INVALID_HANDLE_VALUE opening IoT driver device");
         }
-    }
 
-    log::info!("[ecram_shim] Deploying {dest_file_name} to {dest:?}");
-    enable_restore_privilege().context("enable SeRestorePrivilege")?;
-    copy_with_backup_semantics(&shim_src, &dest)?;
-    log::info!("[ecram_shim] Deployed successfully");
-    Ok(dest)
-}
+        let mut in_buf = EcramBuf {
+            physical_address: phys_addr,
+            byte_count: data.len() as u64,
+            data: [0u8; 0x100],
+        };
+        in_buf.data[..data.len()].copy_from_slice(data);
 
-/// Read `byte_count` bytes of ECRAM at `phys_addr` via the deployed shim.
-///
-/// Deploys the shim on first call (or when it changes), then spawns it as a
-/// child process and parses its JSON stdout.
-pub fn read_ecram_via_shim(phys_addr: u64, byte_count: usize) -> Result<Vec<u8>> {
-    #[cfg(windows)]
-    {
-        let v = run_ecram_shim([
-            "read".to_string(),
-            format!("{phys_addr:#010x}"),
-            format!("{byte_count}"),
-        ])?;
-        decode_shim_hex_payload(&v)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (phys_addr, byte_count);
-        anyhow::bail!("read_ecram_via_shim is only supported on Windows")
-    }
-}
-
-/// Read a named IoT region through the deployed shim.
-///
-/// Supported regions: `ERAM`, `SMA2`, `IOT_STATUS`, `IOT_SENSORS`.
-#[allow(dead_code)]
-pub fn read_named_region_via_shim(region: &str) -> Result<Vec<u8>> {
-    #[cfg(windows)]
-    {
-        let v = run_ecram_shim(["read-region".to_string(), region.to_string()])?;
-        decode_shim_hex_payload(&v)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = region;
-        anyhow::bail!("read_named_region_via_shim is only supported on Windows")
-    }
-}
-
-/// Write bytes into EC RAM through the deployed shim.
-#[allow(dead_code)]
-pub fn write_ecram_via_shim(phys_addr: u64, data: &[u8]) -> Result<()> {
-    #[cfg(windows)]
-    {
-        anyhow::ensure!(
-            !data.is_empty() && data.len() <= 0x100,
-            "write_ecram_via_shim expects 1..256 bytes"
+        let result = DeviceIoControl(
+            handle,
+            IOCTL_ECRAM_WRITE,
+            Some((&raw const in_buf).cast()),
+            IOCTL_BUF_SIZE as u32,
+            None,
+            0,
+            None,
+            None,
         );
 
-        let hex_data: String = data.iter().map(|b| format!("{b:02x}")).collect();
-        let _ = run_ecram_shim(["write".to_string(), format!("{phys_addr:#010x}"), hex_data])?;
+        CloseHandle(handle).ok();
+        result.context("DeviceIoControl IOCTL_ECRAM_WRITE")?;
         Ok(())
     }
+}
+
+// ── Direct ECRAM write ────────────────────────────────────────────────────────
+
+/// Write `data` bytes into ECRAM at `phys_addr` via direct IoTDriver IOCTL.
+///
+/// Requires the process to be running as administrator and the IoTDriver
+/// security check to pass (calling process must reside in the DriverStore
+/// directory of `IoTDriver.sys`).
+///
+/// # Safety considerations
+/// Writing to EC RAM can cause unpredictable hardware behaviour if the wrong
+/// addresses or values are used.  Callers must validate inputs carefully.
+pub fn write_ecram(phys_addr: u64, data: &[u8]) -> Result<()> {
+    assert!(
+        !data.is_empty() && data.len() <= 0x100,
+        "data must be 1..=0x100 bytes (driver limit)"
+    );
+
+    #[cfg(windows)]
+    {
+        let device_path = find_iot_device_path()
+            .context("IoT driver device not found (is IoTDriver.sys loaded?)")?;
+        write_ecram_inner(&device_path, phys_addr, data)
+    }
+
     #[cfg(not(windows))]
     {
         let _ = (phys_addr, data);
-        anyhow::bail!("write_ecram_via_shim is only supported on Windows")
+        anyhow::bail!("ECRAM write is only supported on Windows")
+    }
+}
+
+/// Read a named ECRAM region via direct IoTDriver IOCTL access.
+///
+/// Supported regions: `ERAM`, `SMA2`, `IOT_STATUS`, `IOT_SENSORS`.
+pub fn read_named_region(region: &str) -> Result<Vec<u8>> {
+    match region.to_ascii_uppercase().as_str() {
+        "ERAM"        => read_ecram(ERAM_BASE, ERAM_SIZE),
+        "SMA2"        => read_ecram(SMA2_BASE, SMA2_SIZE),
+        "IOT_STATUS"  => read_ecram(IOT_STATUS_BASE, IOT_STATUS_SIZE),
+        "IOT_SENSORS" => read_ecram(ECRAM_SENSOR_BLOCK, ECRAM_SENSOR_SIZE),
+        _ => anyhow::bail!(
+            "Unknown ECRAM region: {region}. Supported: ERAM, SMA2, IOT_STATUS, IOT_SENSORS"
+        ),
     }
 }
 
@@ -517,179 +459,6 @@ pub fn is_process_elevated() -> bool {
 #[allow(dead_code)]
 pub fn is_process_elevated() -> bool {
     false
-}
-
-/// Spawn `ecram_shim.exe` with no console window and capture its stdout.
-///
-/// Requires the calling process to be elevated (administrator).  IoTDriver.sys
-/// enforces both the DriverStore path check (satisfied by deploying the shim)
-/// AND requires `SeTokenIsAdmin` on the calling token.  If the process is not
-/// elevated this returns an actionable error rather than spawning a subprocess
-/// that would silently fail with `ERROR_ACCESS_DENIED`.
-#[cfg(windows)]
-fn run_ecram_shim(args: impl IntoIterator<Item = String>) -> Result<serde_json::Value> {
-    use std::os::windows::process::CommandExt;
-    /// Suppress the console window that would otherwise flash when spawning
-    /// a Windows console subsystem binary from a GUI (windowless) process.
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let args_vec: Vec<String> = args.into_iter().collect();
-
-    if !is_process_elevated() {
-        anyhow::bail!(
-            "IoT module requires administrator privileges.\n\
-             Please run MiControl as administrator to enable ECRAM access."
-        );
-    }
-
-    // Some firmware builds verify the process image name in addition to path.
-    // Try IoTService.exe alias first, then fall back to ecram_shim.exe.
-    let mut errors: Vec<String> = Vec::new();
-    for helper_name in ["IoTService.exe", "ecram_shim.exe"] {
-        let shim_path = match deploy_ecram_shim(helper_name)
-            .with_context(|| format!("deploy {helper_name} to IoTDriver DriverStore"))
-        {
-            Ok(p) => p,
-            Err(e) => {
-                errors.push(format!("{helper_name}: {e:#}"));
-                continue;
-            }
-        };
-
-        let output = match std::process::Command::new(&shim_path)
-            .args(args_vec.iter())
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .with_context(|| format!("Failed to spawn helper at {shim_path:?}"))
-        {
-            Ok(o) => o,
-            Err(e) => {
-                errors.push(format!("{helper_name}: {e:#}"));
-                continue;
-            }
-        };
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let v: serde_json::Value = match serde_json::from_str(stdout.trim())
-            .with_context(|| format!("Invalid shim output: stdout={stdout} stderr={stderr}"))
-        {
-            Ok(v) => v,
-            Err(e) => {
-                errors.push(format!("{helper_name}: {e:#}"));
-                continue;
-            }
-        };
-
-        if !v["ok"].as_bool().unwrap_or(false) {
-            let err = v["error"].as_str().unwrap_or("unknown shim error");
-            errors.push(format!("{helper_name}: {err}"));
-            continue;
-        }
-
-        return Ok(v);
-    }
-
-    if errors.is_empty() {
-        anyhow::bail!("No shim helper variant succeeded");
-    }
-    anyhow::bail!("All helper variants failed: {}", errors.join(" | "))
-}
-
-#[cfg(windows)]
-fn decode_shim_hex_payload(v: &serde_json::Value) -> Result<Vec<u8>> {
-    let hex_str = v["data"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("Missing data field in shim output"))?;
-
-    (0..hex_str.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex_str[i..i + 2], 16).map_err(Into::into))
-        .collect::<Result<Vec<u8>>>()
-        .context("Hex decode of shim output")
-}
-
-/// Enable `SeRestorePrivilege` on the current process token so that
-/// `FILE_FLAG_BACKUP_SEMANTICS` bypasses ACL checks on DriverStore writes.
-#[cfg(windows)]
-fn enable_restore_privilege() -> Result<()> {
-    use windows::Win32::Security::{
-        AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
-        TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES,
-    };
-    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-
-    unsafe {
-        let mut token = windows::Win32::Foundation::HANDLE::default();
-        OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &mut token)
-            .context("OpenProcessToken")?;
-
-        let priv_name: Vec<u16> = "SeRestorePrivilege\0".encode_utf16().collect();
-        let mut luid = windows::Win32::Foundation::LUID::default();
-        LookupPrivilegeValueW(None, windows::core::PCWSTR(priv_name.as_ptr()), &mut luid)
-            .context("LookupPrivilegeValueW(SeRestorePrivilege)")?;
-
-        let tp = TOKEN_PRIVILEGES {
-            PrivilegeCount: 1,
-            Privileges: [LUID_AND_ATTRIBUTES {
-                Luid: luid,
-                Attributes: SE_PRIVILEGE_ENABLED,
-            }],
-        };
-
-        AdjustTokenPrivileges(token, false, Some(&tp), 0, None, None)
-            .context("AdjustTokenPrivileges")?;
-
-        let _ = windows::Win32::Foundation::CloseHandle(token);
-    }
-    Ok(())
-}
-
-/// Copy `src` to `dst` using `FILE_FLAG_BACKUP_SEMANTICS` so that the write
-/// bypasses the directory DACL when `SeRestorePrivilege` is active.
-#[cfg(windows)]
-fn copy_with_backup_semantics(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-    use windows::{
-        core::PCWSTR,
-        Win32::{
-            Foundation::{CloseHandle, GENERIC_WRITE, HANDLE},
-            Storage::FileSystem::{
-                CreateFileW, WriteFile, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ,
-            },
-        },
-    };
-
-    let src_data = std::fs::read(src).with_context(|| format!("Read shim source {src:?}"))?;
-
-    let dst_wide: Vec<u16> = OsStr::new(dst).encode_wide().chain(Some(0)).collect();
-
-    unsafe {
-        let handle = CreateFileW(
-            PCWSTR(dst_wide.as_ptr()),
-            GENERIC_WRITE.0,
-            FILE_SHARE_READ,
-            None,
-            CREATE_ALWAYS,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_ATTRIBUTE_NORMAL,
-            HANDLE::default(),
-        )
-        .with_context(|| format!("CreateFileW (backup semantics) on {dst:?}"))?;
-
-        let mut written = 0u32;
-        let write_result = WriteFile(handle, Some(&src_data), Some(&mut written), None);
-        let _ = CloseHandle(handle);
-        write_result.context("WriteFile shim to DriverStore")?;
-
-        anyhow::ensure!(
-            written as usize == src_data.len(),
-            "Wrote {} of {} bytes to {dst:?}",
-            written,
-            src_data.len()
-        );
-    }
-    Ok(())
 }
 
 // ── ECRAM register map ────────────────────────────────────────────────────────
@@ -765,12 +534,11 @@ pub struct EramMap {
 
 /// Read the ACPI ERAM block and decode all known fields.
 ///
-/// Uses the shim path automatically if the direct IoTDriver access fails.
+/// Direct read of the ACPI ERAM register map.
 pub fn read_eram_map() -> Result<EramMap> {
-    // Try direct read, fall back to shim
+    // Direct read only
     let eram = read_ecram(ERAM_BASE, 0x100)
-        .or_else(|_| read_ecram_via_shim(ERAM_BASE, 0x100))
-        .context("ECRAM read (both direct and shim paths failed)")?;
+        .context("ECRAM read (direct IoTDriver access failed)")?;
 
     anyhow::ensure!(eram.len() >= 0x100, "Short ERAM read: {} bytes", eram.len());
 

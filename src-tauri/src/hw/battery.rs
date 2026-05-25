@@ -1,5 +1,11 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
+
+#[cfg(windows)]
+use std::sync::{Mutex, OnceLock};
+#[cfg(windows)]
+use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BatteryInfo {
@@ -30,6 +36,9 @@ pub struct BatteryInfo {
 pub fn get_battery_info() -> Result<BatteryInfo> {
     use std::collections::HashMap;
     use wmi::{COMLibrary, WMIConnection};
+
+    let started = Instant::now();
+    log::trace!(target: "hw::battery", "get_battery_info: start");
 
     let com = COMLibrary::new().context("COM init")?;
     let wmi = WMIConnection::with_namespace_path("ROOT\\WMI", com.into())
@@ -72,6 +81,15 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
         Some(wmi::Variant::Bool(v)) => *v,
         _ => false,
     };
+    log::trace!(
+        target: "hw::battery",
+        "wmi snapshot: plugged={} charging={} remaining_capacity={} charge_rate_mw={} voltage_v={:.3}",
+        is_plugged,
+        is_charging,
+        remaining_capacity,
+        charging_rate,
+        voltage
+    );
 
     // Note: WMI DesignedCapacity / FullChargedCapacity / RemainingCapacity are in mWh, not mAh.
     let designed_mah = match statics.get("DesignedCapacity") {
@@ -140,10 +158,20 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
 
     // Try to read AC adapter input power from ECRAM (IoTDriver.sys)
     let ac_input_power_mw = if is_plugged {
-        crate::hw::ecram::try_get_ac_power_mw()
+        log::trace!(target: "hw::battery", "charger is plugged; attempting ECRAM AC power read");
+        probe_ac_input_power_throttled()
     } else {
+        log::trace!(target: "hw::battery", "charger is unplugged; skipping ECRAM AC power read");
+        clear_ac_power_probe_cache();
         None
     };
+
+    log::trace!(
+        target: "hw::battery",
+        "battery info ready: ac_input_power_mw={:?} elapsed_ms={}",
+        ac_input_power_mw,
+        started.elapsed().as_millis()
+    );
 
     Ok(BatteryInfo {
         level,
@@ -165,6 +193,58 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
         },
         ac_input_power_mw,
     })
+}
+
+#[cfg(windows)]
+#[derive(Default)]
+struct AcPowerProbeCache {
+    last_probe_at: Option<Instant>,
+    last_value_mw: Option<i32>,
+}
+
+#[cfg(windows)]
+fn ac_probe_cache() -> &'static Mutex<AcPowerProbeCache> {
+    static CACHE: OnceLock<Mutex<AcPowerProbeCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(AcPowerProbeCache::default()))
+}
+
+#[cfg(windows)]
+fn probe_ac_input_power_throttled() -> Option<i32> {
+    const AC_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(15);
+    let now = Instant::now();
+
+    if let Ok(cache) = ac_probe_cache().lock() {
+        if let Some(last) = cache.last_probe_at {
+            let elapsed = now.saturating_duration_since(last);
+            if elapsed < AC_PROBE_MIN_INTERVAL {
+                log::trace!(
+                    target: "hw::battery",
+                    "ac probe throttled: returning cached value {:?} (elapsed_ms={} < interval_ms={})",
+                    cache.last_value_mw,
+                    elapsed.as_millis(),
+                    AC_PROBE_MIN_INTERVAL.as_millis()
+                );
+                return cache.last_value_mw;
+            }
+        }
+    }
+
+    let value = crate::hw::ecram::try_get_ac_power_mw();
+
+    if let Ok(mut cache) = ac_probe_cache().lock() {
+        cache.last_probe_at = Some(now);
+        cache.last_value_mw = value;
+    }
+
+    value
+}
+
+#[cfg(windows)]
+fn clear_ac_power_probe_cache() {
+    if let Ok(mut cache) = ac_probe_cache().lock() {
+        cache.last_probe_at = None;
+        cache.last_value_mw = None;
+    }
 }
 
 #[cfg(not(windows))]

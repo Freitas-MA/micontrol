@@ -1,4 +1,5 @@
 mod commands;
+mod debug_log;
 mod elev_bridge;
 pub mod elevated;
 mod hw;
@@ -67,9 +68,12 @@ async fn open_main_window(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Info)
-        .init();
+    if let Err(e) = crate::debug_log::init_logging() {
+        eprintln!("failed to initialize logging: {e:#}");
+    }
+    if let Some(path) = crate::debug_log::dev_log_path() {
+        log::info!(target: "devlog", "current dev log file: {}", path.display());
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -276,7 +280,14 @@ pub fn run() {
                     // In dev mode: allow the window to close so the process exits when
                     // the Vite dev server stops (Ctrl+C). Without this the Tauri binary
                     // stays alive as a zombie and the next `tauri dev` spawns a duplicate.
-                    if cfg!(not(debug_assertions)) {
+                    if cfg!(debug_assertions) {
+                        // In dev we keep a hidden tray window pre-created, so simply
+                        // allowing close can still leave the process alive. Force full
+                        // app shutdown when the main window is closed.
+                        if window.label() == "main" {
+                            window.app_handle().exit(0);
+                        }
+                    } else {
                         // Production: hide to tray instead of closing.
                         window.hide().ok();
                         api.prevent_close();
