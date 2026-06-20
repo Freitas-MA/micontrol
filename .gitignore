@@ -44,3 +44,9 @@ Desktop.ini
 # Tauri generated (kept in source control, but platform-specific):
 # Uncomment the lines below if you do NOT want generated schemas committed
 # src-tauri/gen/
+
+# ACPI / UEFI firmware table dumps (analysis artifacts)
+# These are binary extracts from the BIOS/firmware, not source code.
+# msdm.dat contains the Windows OEM product key — NEVER commit.
+*.dat
+acpi_dump/
