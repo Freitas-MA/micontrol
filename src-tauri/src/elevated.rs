@@ -16,6 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::time::SystemTime;
+use crate::util::auth;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
@@ -44,25 +45,52 @@ pub fn run() -> ! {
 
     let result = match std::fs::read_to_string(&pending.cmd_path) {
         Ok(content) => {
-            // Consume the command file immediately
+            // Consume the command file immediately to close the read window.
             let _ = std::fs::remove_file(&pending.cmd_path);
-            match serde_json::from_str::<ElevCmd>(&content) {
-                Ok(cmd) => dispatch(cmd),
+
+            // Parse the raw JSON to verify the HMAC before dispatching.
+            match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(mut payload) => {
+                    if let Ok(key) = auth::read_key() {
+                        // Verify the command HMAC and timestamp freshness.
+                        if let Err(e) = auth::verify_payload(&mut payload, &key) {
+                            log::warn!("Elevated command rejected (auth failure): {e}");
+                            make_err(format!("Command authentication failed: {e}"))
+                        } else {
+                            // Re-deserialize into ElevCmd after verification.
+                            match serde_json::from_value::<ElevCmd>(payload) {
+                                Ok(cmd) => dispatch(cmd),
+                                Err(e) => make_err(format!("Invalid command: {e}")),
+                            }
+                        }
+                    } else {
+                        log::error!("Elevated helper cannot read HMAC key");
+                        make_err("Authentication key unavailable".to_string())
+                    }
+                }
                 Err(e) => make_err(format!("Invalid command JSON: {e}")),
             }
         }
         Err(e) => make_err(format!("Cannot read command file: {e}")),
     };
 
-    let wrapped = json!({
+    let mut wrapped = json!({
         "request_id": pending.request_id,
         "ok": result["ok"].as_bool().unwrap_or(false),
         "data": result["data"].clone(),
         "error": result["error"].clone(),
+        "created_at_ms": auth::now_ms(),
     });
+
+    // Sign the response with HMAC so the caller can verify integrity.
+    if let Ok(key) = auth::read_key() {
+        auth::sign_payload(&mut wrapped, &key);
+    }
+
     let json = serde_json::to_string(&wrapped)
         .unwrap_or_else(|_| r#"{"ok":false,"error":"serialize_error"}"#.to_string());
     let _ = std::fs::write(&pending.result_path, json);
+    auth::restrict_file_acl(&pending.result_path);
     std::process::exit(0);
 }
 
@@ -79,6 +107,12 @@ struct ElevCmd {
     #[allow(dead_code)]
     #[serde(default)]
     created_at_ms: Option<u64>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    nonce: Option<String>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    hmac: Option<String>,
     #[allow(dead_code)]
     #[serde(default)]
     caller_pid: Option<u32>,
@@ -302,6 +336,8 @@ pub fn dispatch_cmd(cmd: &str, args: Value) -> Value {
         protocol_version: None,
         request_id: None,
         created_at_ms: None,
+        nonce: None,
+        hmac: None,
         caller_pid: None,
         cmd: cmd.to_string(),
         args,
@@ -413,4 +449,82 @@ fn select_pending_command(
     }
 
     Err("No pending elevated command file found".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::util::auth;
+
+    /// Regression test: an unauthenticated command (no HMAC) is rejected.
+    #[test]
+    fn test_unauthenticated_command_rejected() {
+        let key = b"test-key-32-bytes-long-1234567890";
+        let mut payload = serde_json::json!({
+            "cmd": "set_brightness",
+            "args": {"level": 80},
+            "created_at_ms": auth::now_ms(),
+            "nonce": auth::generate_nonce(),
+        });
+        // Do NOT sign the payload — simulate an attacker who wrote a command
+        // file without knowing the key.
+        let result = auth::verify_payload(&mut payload, key);
+        assert!(result.is_err(), "Unauthenticated command should be rejected");
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.to_lowercase().contains("hmac"),
+            "Error should mention HMAC"
+        );
+    }
+
+    /// Regression test: a command file swapped after write (HMAC mismatch) is rejected.
+    #[test]
+    fn test_swapped_command_rejected() {
+        let key = b"test-key-32-bytes-long-1234567890";
+        let mut payload = serde_json::json!({
+            "cmd": "set_brightness",
+            "args": {"level": 80},
+            "created_at_ms": auth::now_ms(),
+            "nonce": auth::generate_nonce(),
+        });
+        auth::sign_payload(&mut payload, key);
+
+        // Simulate an attacker swapping the command body after the file was
+        // written but before the helper reads it.
+        payload["cmd"] = serde_json::json!("set_charging_threshold");
+        payload["args"] = serde_json::json!({"threshold": 100});
+
+        let result = auth::verify_payload(&mut payload, key);
+        assert!(result.is_err(), "Swapped command should be rejected");
+    }
+
+    /// A validly-signed command with a fresh timestamp is accepted.
+    #[test]
+    fn test_valid_command_accepted() {
+        let key = b"test-key-32-bytes-long-1234567890";
+        let mut payload = serde_json::json!({
+            "cmd": "set_brightness",
+            "args": {"level": 80},
+            "created_at_ms": auth::now_ms(),
+            "nonce": auth::generate_nonce(),
+        });
+        auth::sign_payload(&mut payload, key);
+        let result = auth::verify_payload(&mut payload, key);
+        assert!(result.is_ok(), "Valid command should be accepted");
+    }
+
+    /// A command signed with a different key is rejected.
+    #[test]
+    fn test_wrong_key_rejected() {
+        let key1 = b"test-key-32-bytes-long-1234567890";
+        let key2 = b"attacker-key-32-bytes-long-1234567";
+        let mut payload = serde_json::json!({
+            "cmd": "set_brightness",
+            "args": {"level": 80},
+            "created_at_ms": auth::now_ms(),
+            "nonce": auth::generate_nonce(),
+        });
+        auth::sign_payload(&mut payload, key1);
+        let result = auth::verify_payload(&mut payload, key2);
+        assert!(result.is_err(), "Wrong-key command should be rejected");
+    }
 }

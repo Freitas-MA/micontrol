@@ -19,6 +19,7 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use crate::util::auth;
 
 /// Name of the scheduled task registered by the NSIS installer.
 const TASK_NAME: &str = "MiControlElevated";
@@ -66,22 +67,36 @@ pub async fn run_elevated(cmd: &'static str, args: Value) -> Result<Value, Strin
     let request_id = make_request_id();
     let cmd_path = dir.join(cmd_file_name(&request_id));
     let result_path = dir.join(result_file_name(&request_id));
-    let payload = serde_json::json!({
+    let nonce = auth::generate_nonce();
+    let mut payload = serde_json::json!({
         "protocol_version": 2,
         "request_id": request_id,
-        "created_at_ms": now_ms(),
+        "created_at_ms": auth::now_ms(),
+        "nonce": nonce,
         "caller_pid": std::process::id(),
         "cmd": cmd,
         "args": args,
     });
 
+    // Sign the payload with HMAC-SHA256 using the shared key.
+    let key = auth::get_or_create_key()
+        .map_err(|e| format!("Cannot obtain HMAC key: {e}"))?;
+    auth::sign_payload(&mut payload, &key);
+
     // Remove any stale result from a previous run for this request id.
     let _ = tokio::fs::remove_file(&result_path).await;
 
-    // Write the command payload.
-    tokio::fs::write(&cmd_path, payload.to_string())
+    // Write the command payload atomically: write to a temp file, then rename.
+    // This eliminates the TOCTOU race — the elevated helper never sees a
+    // partially-written file.
+    let tmp_path = dir.join(format!("elev_cmd_{request_id}.tmp"));
+    tokio::fs::write(&tmp_path, payload.to_string())
         .await
         .map_err(|e| format!("Cannot write elevated command: {e}"))?;
+    tokio::fs::rename(&tmp_path, &cmd_path)
+        .await
+        .map_err(|e| format!("Cannot rename elevated command file: {e}"))?;
+    auth::restrict_file_acl(&cmd_path);
 
     // Launch the scheduled task (returns immediately; task runs asynchronously).
     // Stdout/stderr are explicitly silenced — schtasks prints
@@ -134,8 +149,15 @@ pub async fn run_elevated(cmd: &'static str, args: Value) -> Result<Value, Strin
             let _ = tokio::fs::remove_file(&result_path).await;
             let _ = tokio::fs::remove_file(&cmd_path).await;
 
-            let v: Value =
+            let mut v: Value =
                 serde_json::from_str(&content).map_err(|e| format!("Invalid result JSON: {e}"))?;
+
+            // Verify the response HMAC to detect tampering or spoofing.
+            if let Err(e) = auth::verify_payload(&mut v, &key) {
+                log::warn!("Elevated response HMAC verification failed: {e}");
+                return Err(format!("Elevated response authentication failed: {e}"));
+            }
+
             let result_req = v["request_id"].as_str().unwrap_or_default();
             if result_req != request_id {
                 return Err(format!(
@@ -178,8 +200,15 @@ pub async fn run_elevated(cmd: &'static str, args: Value) -> Result<Value, Strin
                         .map_err(|e| format!("Cannot read elevated result: {e}"))?;
                     let _ = tokio::fs::remove_file(&result_path).await;
                     let _ = tokio::fs::remove_file(&cmd_path).await;
-                    let v: Value = serde_json::from_str(&content)
+                    let mut v: Value = serde_json::from_str(&content)
                         .map_err(|e| format!("Invalid result JSON: {e}"))?;
+
+                    // Verify the response HMAC.
+                    if let Err(e) = auth::verify_payload(&mut v, &key) {
+                        log::warn!("Elevated response HMAC verification failed: {e}");
+                        return Err(format!("Elevated response authentication failed: {e}"));
+                    }
+
                     let result_req = v["request_id"].as_str().unwrap_or_default();
                     if result_req != request_id {
                         return Err(format!(

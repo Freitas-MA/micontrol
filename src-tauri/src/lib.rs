@@ -4,6 +4,7 @@ mod elev_bridge;
 pub mod elevated;
 mod hw;
 mod state;
+mod util;
 
 use commands::ai_logs::{open_ai_logs_dir, read_ai_perf_logs, write_ai_perf_log};
 use commands::hardware::{
