@@ -27,12 +27,13 @@ use commands::hotkeys::{
 };
 use commands::system::{
     debug_ecram_dump, get_ai_brightness_config, get_autostart, get_available_refresh_rates,
-    get_battery_info, get_display_info, get_fan_info, get_hardware_profile, get_process_list,
-    get_system_info, get_touchpad_info, get_update_status, install_driver, run_hardware_discovery,
-    set_adaptive_refresh_rate, set_ai_brightness, set_ai_brightness_config, set_autostart,
-    set_brightness, set_fan_mode, set_hdr, set_refresh_rate, set_touchpad_edge_slide,
-    set_touchpad_gesture_screenshot, set_touchpad_haptics, set_touchpad_haptics_intensity,
-    set_touchpad_repress, set_touchpad_sensitivity, trigger_driver_scan,
+    get_battery_info, get_display_info, get_fan_info, get_hardware_profile,
+    get_hardware_state_batch, get_process_list, get_system_info, get_touchpad_info,
+    get_update_status, install_driver, run_hardware_discovery, set_adaptive_refresh_rate,
+    set_ai_brightness, set_ai_brightness_config, set_autostart, set_brightness, set_fan_mode,
+    set_hdr, set_refresh_rate, set_touchpad_edge_slide, set_touchpad_gesture_screenshot,
+    set_touchpad_haptics, set_touchpad_haptics_intensity, set_touchpad_repress,
+    set_touchpad_sensitivity, trigger_driver_scan,
 };
 use state::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -194,6 +195,8 @@ pub fn run() {
             open_ai_logs_dir,
             // ECRAM debug
             debug_ecram_dump,
+            // Batched hardware state (S4-002)
+            get_hardware_state_batch,
         ])
         .setup(|app| {
             // Hardware discovery — load cached profile or scan on first run

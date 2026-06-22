@@ -1,11 +1,14 @@
 use crate::elev_bridge;
+use crate::hw::audio::{get_playback_volume as hw_get_audio, AudioVolumeResult};
 use crate::hw::battery::{get_battery_info as hw_get_battery, BatteryInfo};
+use crate::hw::charging::get_charging_threshold as hw_get_charge;
 use crate::hw::discovery::{global_profile, HardwareProfile};
 use crate::hw::display::{
     get_ai_brightness_config as hw_get_ai_cfg, get_available_refresh_rates as hw_get_refresh_rates,
     get_display_info as hw_get_display, set_hdr as hw_set_hdr, AiBrightnessConfig, DisplayInfo,
 };
 use crate::hw::fan::{get_fan_info as hw_get_fan, FanInfo, FanMode};
+use crate::hw::performance::get_performance_mode as hw_get_perf;
 use crate::hw::processes::{get_process_list as hw_get_processes, ProcessInfo};
 use crate::hw::startup::{get_autostart as hw_get_autostart, set_autostart as hw_set_autostart};
 use crate::hw::system_info::{get_system_info as hw_get_sysinfo, SystemInfo};
@@ -20,6 +23,7 @@ use crate::hw::touchpad::{
 use crate::hw::update::{
     get_update_status as hw_get_update_status, trigger_driver_scan as hw_trigger_scan, UpdateStatus,
 };
+use crate::state::PerformanceMode;
 
 #[tauri::command]
 pub async fn get_battery_info() -> Result<BatteryInfo, String> {
@@ -316,4 +320,50 @@ pub async fn install_driver(driver_name: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn debug_ecram_dump() -> Result<String, String> {
     crate::hw::ecram::debug_ecram_hex().map_err(|e| e.to_string())
+}
+
+// ── Batched hardware state (S4-002) ──────────────────────────────────────────
+
+/// Consolidated snapshot of all polled hardware properties returned in a single
+/// IPC call. Each field is `Option<T>` so partial failures don't block the whole batch.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HardwareState {
+    pub battery: Option<BatteryInfo>,
+    pub display: Option<DisplayInfo>,
+    pub fan: Option<FanInfo>,
+    pub touchpad: Option<TouchpadInfo>,
+    pub system_info: Option<SystemInfo>,
+    pub performance_mode: Option<PerformanceMode>,
+    pub charging_threshold: Option<u8>,
+    pub audio: Option<AudioVolumeResult>,
+}
+
+/// Poll all hardware state at once with a single `spawn_blocking` call.
+///
+/// Each subsystem query is wrapped in `ok()` so a transient WMI/pipe failure
+/// on one sensor doesn't prevent the rest from returning.
+#[tauri::command]
+pub async fn get_hardware_state_batch() -> Result<HardwareState, String> {
+    tokio::task::spawn_blocking(|| {
+        let battery = hw_get_battery().ok();
+        let display = hw_get_display().ok();
+        let fan = hw_get_fan().ok();
+        let touchpad = hw_get_touchpad().ok();
+        let system_info = hw_get_sysinfo().ok();
+        let performance_mode = hw_get_perf().ok();
+        let charging_threshold = hw_get_charge().ok();
+        let audio = hw_get_audio().ok();
+        Ok(HardwareState {
+            battery,
+            display,
+            fan,
+            touchpad,
+            system_info,
+            performance_mode,
+            charging_threshold,
+            audio,
+        })
+    })
+    .await
+    .map_err(|e| format!("blocking task panicked: {e}"))?
 }

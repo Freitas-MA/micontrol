@@ -217,6 +217,17 @@ export interface AudioVolumeResult {
   muted: boolean;
 }
 
+export interface HardwareState {
+  battery: BatteryInfo | null;
+  display: DisplayInfo | null;
+  fan: FanInfo | null;
+  touchpad: TouchpadInfo | null;
+  system_info: SystemInfo | null;
+  performance_mode: PerformanceMode | null;
+  charging_threshold: number | null;
+  audio: AudioVolumeResult | null;
+}
+
 export interface HardwareRefreshErrors {
   system_info: string | null;
   battery: string | null;
@@ -225,6 +236,7 @@ export interface HardwareRefreshErrors {
   touchpad: string | null;
   performance_mode: string | null;
   charging_threshold: string | null;
+  audio: string | null;
 }
 
 const EMPTY_REFRESH_ERRORS: HardwareRefreshErrors = {
@@ -235,6 +247,7 @@ const EMPTY_REFRESH_ERRORS: HardwareRefreshErrors = {
   touchpad: null,
   performance_mode: null,
   charging_threshold: null,
+  audio: null,
 };
 
 function formatInvokeError(reason: unknown): string {
@@ -250,6 +263,7 @@ const REFRESH_ERROR_LABELS: Record<keyof HardwareRefreshErrors, string> = {
   touchpad: "touchpad",
   performance_mode: "performance",
   charging_threshold: "charging",
+  audio: "audio",
 };
 
 // ── Hardware hook ────────────────────────────────────────────────────────────
@@ -282,42 +296,49 @@ export function useHardware() {
 
   const refresh = useCallback(async () => {
     if (!hasLoadedOnce.current) setLoading(true);
-    const [sys, bat, disp, fanData, tp, pm, ct] = await Promise.allSettled([
-      invoke<SystemInfo>("get_system_info"),
-      invoke<BatteryInfo>("get_battery_info"),
-      invoke<DisplayInfo>("get_display_info"),
-      invoke<FanInfo>("get_fan_info"),
-      invoke<TouchpadInfo>("get_touchpad_info"),
-      invoke<PerformanceMode>("get_performance_mode"),
-      invoke<number>("get_charging_threshold"),
-    ]);
 
     const nextErrors: HardwareRefreshErrors = { ...EMPTY_REFRESH_ERRORS };
 
-    if (sys.status === "fulfilled") setSystemInfo(sys.value);
-    else nextErrors.system_info = formatInvokeError(sys.reason);
+    try {
+      const state = await invoke<HardwareState>("get_hardware_state_batch");
 
-    if (bat.status === "fulfilled") setBattery(bat.value);
-    else nextErrors.battery = formatInvokeError(bat.reason);
+      if (state.system_info !== null) setSystemInfo(state.system_info);
+      else nextErrors.system_info = "no data";
 
-    if (disp.status === "fulfilled") setDisplay(disp.value);
-    else nextErrors.display = formatInvokeError(disp.reason);
+      if (state.battery !== null) setBattery(state.battery);
+      else nextErrors.battery = "no data";
 
-    if (fanData.status === "fulfilled") setFan(fanData.value);
-    else nextErrors.fan = formatInvokeError(fanData.reason);
+      if (state.display !== null) setDisplay(state.display);
+      else nextErrors.display = "no data";
 
-    // Only update touchpad from poll when no user write is in flight.
-    if (tp.status === "fulfilled" && Date.now() >= touchpadDirtyUntil.current) {
-      setTouchpad(tp.value);
-    } else if (tp.status === "rejected") {
-      nextErrors.touchpad = formatInvokeError(tp.reason);
+      if (state.fan !== null) setFan(state.fan);
+      else nextErrors.fan = "no data";
+
+      // Only update touchpad from poll when no user write is in flight.
+      if (state.touchpad !== null && Date.now() >= touchpadDirtyUntil.current) {
+        setTouchpad(state.touchpad);
+      } else if (state.touchpad === null) {
+        nextErrors.touchpad = "no data";
+      }
+
+      if (state.performance_mode !== null) setPerformanceModeState(state.performance_mode);
+      else nextErrors.performance_mode = "no data";
+
+      if (state.charging_threshold !== null) setChargingThresholdState(state.charging_threshold);
+      else nextErrors.charging_threshold = "no data";
+
+      if (state.audio !== null) setAudioState(state.audio);
+      else nextErrors.audio = "no data";
+    } catch (e) {
+      nextErrors.system_info = formatInvokeError(e);
+      nextErrors.battery = formatInvokeError(e);
+      nextErrors.display = formatInvokeError(e);
+      nextErrors.fan = formatInvokeError(e);
+      nextErrors.touchpad = formatInvokeError(e);
+      nextErrors.performance_mode = formatInvokeError(e);
+      nextErrors.charging_threshold = formatInvokeError(e);
+      nextErrors.audio = formatInvokeError(e);
     }
-
-    if (pm.status === "fulfilled") setPerformanceModeState(pm.value);
-    else nextErrors.performance_mode = formatInvokeError(pm.reason);
-
-    if (ct.status === "fulfilled") setChargingThresholdState(ct.value);
-    else nextErrors.charging_threshold = formatInvokeError(ct.reason);
 
     setRefreshErrors(nextErrors);
     const failedSubsystems = Object.entries(nextErrors)
@@ -588,7 +609,9 @@ export function useHardware() {
     await invoke("relaunch_as_admin");
   }, []);
 
-  // ── Audio state ──────────────────────────────────────────────────────────
+  // Audio state is now polled as part of the batched get_hardware_state_batch.
+  // The individual getAudioState helper is kept for one-shot reads (e.g. after
+  // user-initiated volume/mute changes).
   const getAudioState = useCallback(async () => {
     try {
       const result = await invoke<AudioVolumeResult>("get_audio_volume");
@@ -607,17 +630,6 @@ export function useHardware() {
   const setMasterMute = useCallback(async (muted: boolean) => {
     await invoke("set_audio_mute", { muted });
     await getAudioState();
-  }, [getAudioState]);
-
-  // Poll audio state every 2s while visible (catches hardware key changes)
-  useEffect(() => {
-    const poll = () => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      void getAudioState();
-    };
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
   }, [getAudioState]);
 
   useEffect(() => {
