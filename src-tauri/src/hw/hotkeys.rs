@@ -930,6 +930,13 @@ unsafe extern "system" fn keyboard_hook_proc(
     }
 
     let event_type = w_param.0 as u32;
+
+    // Safety: When n_code >= 0 (HC_ACTION), l_param must point to a valid
+    // KBDLLHOOKSTRUCT.  Defensively reject null to prevent UB.
+    if l_param.0 == 0 {
+        log::warn!(target: "hw::hotkeys", "keyboard_hook_proc: null l_param (n_code={})", n_code);
+        return CallNextHookEx(None, n_code, w_param, l_param);
+    }
     let kb = &*(l_param.0 as *const KBDLLHOOKSTRUCT);
     let vk = kb.vkCode;
 
