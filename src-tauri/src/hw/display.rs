@@ -340,13 +340,22 @@ pub async fn adaptive_brightness_loop() {
         let target =
             (raw_target + offset).clamp(cfg.min_brightness as f32, cfg.max_brightness as f32);
 
-        let current = smoothed.unwrap_or_else(|| {
-            // First valid lux reading: seed the smoother from actual current
-            // brightness so we never jump immediately to the computed target.
-            read_current_brightness()
-                .map(|b| b as f32)
+        let current = match smoothed {
+            Some(s) => s,
+            None => {
+                // First valid lux reading: seed the smoother from actual current
+                // brightness so we never jump immediately to the computed target.
+                // read_current_brightness → get_brightness_wmi is a blocking COM
+                // call, so it must run on the blocking thread pool.
+                tokio::task::spawn_blocking(move || {
+                    read_current_brightness()
+                        .map(|b| b as f32)
+                        .unwrap_or(target)
+                })
+                .await
                 .unwrap_or(target)
-        });
+            }
+        };
         let sf = cfg.smoothing.min(95) as f32 / 100.0;
         let next = current + (target - current) * (1.0 - sf);
         smoothed = Some(next);
