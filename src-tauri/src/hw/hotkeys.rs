@@ -35,9 +35,10 @@
 //! 8. Per-Windows-user profile storage (multi-user session awareness).
 //! ─────────────────────────────────────────────────────────────────────────────
 
+use std::collections::HashMap;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use crate::util::panic::lock_or_recover;
@@ -104,9 +105,45 @@ enum RemapState {
 
 static REMAP_STATE: Mutex<RemapState> = Mutex::new(RemapState::Idle);
 
-/// Timestamp (ms) of the last WMI HID action dispatched.  Used to debounce
-/// key-repeat events (IoTDriver fires active=true repeatedly while held).
-static LAST_WMI_ACTION_MS: AtomicU64 = AtomicU64::new(0);
+/// Per-key debounce for WMI HID events.
+/// Maps a key code (derived from class_idx + distinguish_byte) to the last
+/// time that key's action was dispatched.  Different keys do not suppress
+/// each other; repeated firings of the same key within the window are debounced.
+static WMI_DEBOUNCE: OnceLock<Mutex<HashMap<u32, std::time::Instant>>> = OnceLock::new();
+
+/// Returns `true` if the given key code should be debounced (i.e. it fired
+/// within the last 400 ms).  Otherwise records the current time and returns
+/// `false` — the caller should process the event.
+///
+/// Stale entries older than 60 seconds are purged on each call.
+fn wmi_key_debounced(key_code: u32) -> bool {
+    use std::time::Instant;
+    const DEBOUNCE_MS: u64 = 400;
+
+    let now = Instant::now();
+    let map = WMI_DEBOUNCE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = lock_or_recover(map);
+
+    if let Some(last) = map.get(&key_code) {
+        if now.duration_since(*last).as_millis() < DEBOUNCE_MS as u128 {
+            log::info!(
+                "[hotkeys] WMI key {:#06X} debounced ({}.{} ms)",
+                key_code,
+                now.duration_since(*last).as_millis(),
+                now.duration_since(*last).as_micros() % 1000,
+            );
+            // Still clean up stale entries even when debouncing.
+            map.retain(|_, v| now.duration_since(*v).as_secs() < 60);
+            return true;
+        }
+    }
+
+    map.insert(key_code, now);
+    // Opportunistic cleanup of entries older than 60 s.
+    map.retain(|_, v| now.duration_since(*v).as_secs() < 60);
+    false
+}
+
 /// Avoid spamming the same admin guidance on every startup/retry.
 static VCHID_ACCESS_DENIED_LOGGED: AtomicBool = AtomicBool::new(false);
 
@@ -1667,18 +1704,11 @@ fn handle_hid_wmi_event(class_name: &str, class_idx: u32, active: bool, detail: 
     // Log every active WMI key event regardless of what happens next.
     log::info!("[hotkeys] WMI key: class={class_name} detail={detail:02X?}");
 
-    // Debounce: IoTDriver may fire active=true repeatedly while the key is held.
-    // Suppress re-triggers within 400 ms of the last dispatched action.
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let last = LAST_WMI_ACTION_MS.load(Ordering::Relaxed);
-    if now.saturating_sub(last) < 400 {
-        log::info!(
-            "[hotkeys] WMI key debounced ({} ms since last action)",
-            now.saturating_sub(last)
-        );
+    // Per-key debounce: IoTDriver may fire active=true repeatedly while a
+    // key is held.  Use the distinguish_byte (key code) as the debounce key
+    // so that different keys do not suppress each other.
+    let debounce_key = (class_idx << 8) | distinguish_byte;
+    if wmi_key_debounced(debounce_key) {
         return;
     }
 
@@ -1692,7 +1722,6 @@ fn handle_hid_wmi_event(class_name: &str, class_idx: u32, active: bool, detail: 
             // (IoTDriver reports the NEW mic state after the key toggles it.)
             let muted = detail.get(2).copied().unwrap_or(1) == 0;
             log::info!("[hotkeys] WMI Fn+F4 → mic mute OSD (muted={})", muted);
-            LAST_WMI_ACTION_MS.store(now, Ordering::Relaxed);
             crate::hw::osd::show_mic_mute_osd(muted);
             crate::hw::mic::set_system_mic_mute(muted);
             return;
@@ -1704,21 +1733,18 @@ fn handle_hid_wmi_event(class_name: &str, class_idx: u32, active: bool, detail: 
                 "[hotkeys] WMI Fn+F10 → keyboard backlight OSD (raw=0x{:02X})",
                 level
             );
-            LAST_WMI_ACTION_MS.store(now, Ordering::Relaxed);
             crate::hw::osd::show_keyboard_osd(level);
             return;
         }
         ("HID_EVENT20", 0x01) => {
             // Fn+F8: Project / display mode  →  Win+P
             log::info!("[hotkeys] WMI Fn+F8 → Win+P (project)");
-            LAST_WMI_ACTION_MS.store(now, Ordering::Relaxed);
             send_win_key_combo(0x50); // VK 'P'
             return;
         }
         ("HID_EVENT20", 0x1B) => {
             // Fn+F9: Windows Settings  →  Win+I
             log::info!("[hotkeys] WMI Fn+F9 → Win+I (settings)");
-            LAST_WMI_ACTION_MS.store(now, Ordering::Relaxed);
             send_win_key_combo(0x49); // VK 'I'
             return;
         }
@@ -1748,7 +1774,6 @@ fn handle_hid_wmi_event(class_name: &str, class_idx: u32, active: bool, detail: 
 
     if let Some(action) = action_opt {
         log::info!("[hotkeys] WMI key dispatching action: {:?}", action);
-        LAST_WMI_ACTION_MS.store(now, Ordering::Relaxed);
         dispatch_action(&action);
     }
 }
@@ -2380,5 +2405,69 @@ mod remap_state_tests {
 
         assert!(!capture_key(0x42), "capture when Idle should return false");
         assert_eq!(get_detected_vk(), 0, "get_detected_vk should return 0 when Idle");
+    }
+}
+
+#[cfg(test)]
+mod wmi_debounce_tests {
+    use super::*;
+
+    /// Helper: reset the debounce map to empty.
+    fn reset_debounce() {
+        // The `wmi_key_debounced` function initializes the OnceLock lazily,
+        // so any prior entries are simply discarded by creating a new map.
+        if let Some(mtx) = WMI_DEBOUNCE.get() {
+            let mut map = mtx.lock().unwrap();
+            map.clear();
+        }
+    }
+
+    /// A different key fired within the debounce window must NOT be suppressed.
+    #[test]
+    fn test_different_keys_do_not_debounce_each_other() {
+        reset_debounce();
+
+        // Fire key A — should not be debounced.
+        assert!(!wmi_key_debounced(0x01), "first fire of key 0x01 should not be debounced");
+
+        // Fire key B — should NOT be debounced, even though we just fired key A.
+        assert!(!wmi_key_debounced(0x02), "key 0x02 within window of key 0x01 should NOT be debounced");
+
+        // Fast re-fire of key A — should be debounced (same key).
+        assert!(wmi_key_debounced(0x01), "key 0x01 re-fired within window should be debounced");
+    }
+
+    /// The same key fired twice within the debounce window must be suppressed.
+    #[test]
+    fn test_same_key_is_debounced() {
+        reset_debounce();
+
+        assert!(!wmi_key_debounced(0x42), "first fire should not be debounced");
+        assert!(wmi_key_debounced(0x42), "second fire within window should be debounced");
+    }
+
+    /// Sanity-check that the function returns false when called once (no debounce history).
+    #[test]
+    fn test_first_call_not_debounced() {
+        reset_debounce();
+
+        assert!(!wmi_key_debounced(0x99), "first call should always be accepted");
+        assert!(wmi_key_debounced(0x99), "second call should be debounced");
+    }
+
+    /// Verify that debouncing is per-key, not per-distinguish_byte-group:
+    /// two keys with different distinguish bytes should not suppress each other.
+    #[test]
+    fn test_per_key_independence_by_class() {
+        reset_debounce();
+
+        // Simulate two different HID classes with the same distinguish byte.
+        // Debounce key = (class_idx << 8) | distinguish_byte.
+        let key_a = (0u32 << 8) | 0x23; // HID_EVENT20, AI key
+        let key_b = (1u32 << 8) | 0x23; // HID_EVENT21, same detail byte
+
+        assert!(!wmi_key_debounced(key_a), "key_a first fire should not be debounced");
+        assert!(!wmi_key_debounced(key_b), "key_b (different class, same detail byte) should NOT be debounced");
+        assert!(wmi_key_debounced(key_a), "key_a second fire should be debounced");
     }
 }
