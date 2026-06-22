@@ -898,6 +898,14 @@ function KeyboardTab() {
   const [saved, setSaved] = useState(false);
   const [hookActive, setHookActive] = useState<boolean | null>(null);
   const { addToast } = useToast();
+  const timeoutRefs = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timeoutRefs.current.forEach(id => clearTimeout(id));
+      timeoutRefs.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     import("@tauri-apps/api/core").then(({ invoke }) => {
@@ -918,7 +926,8 @@ function KeyboardTab() {
       await invoke("set_hotkey_config", { config });
       setSaved(true);
       addToast(t("keyboard.saved"), "success");
-      setTimeout(() => setSaved(false), 2000);
+      const savedTimeout = window.setTimeout(() => setSaved(false), 2000);
+      timeoutRefs.current.push(savedTimeout);
     } catch (e) {
       console.error("set_hotkey_config", e);
       addToast(`${t("keyboard.saveError")}: ${String(e)}`, "error");
@@ -1078,6 +1087,14 @@ function IotModulePanel({ hw }: { hw: Hardware }) {
   const [writeAddress, setWriteAddress] = useState("0xFE0B0300");
   const [writeHex, setWriteHex] = useState("");
   const [writeStatus, setWriteStatus] = useState<string | null>(null);
+  const timeoutRefs = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timeoutRefs.current.forEach(id => clearTimeout(id));
+      timeoutRefs.current = [];
+    };
+  }, []);
 
   const checkElevation = useCallback(async () => {
     try {
@@ -1135,7 +1152,8 @@ function IotModulePanel({ hw }: { hw: Hardware }) {
     const addr = `0x${(ERAM_BASE + offset).toString(16).toUpperCase()}`;
     try {
       await hw.writeIotHex(addr, byte.toString(16).padStart(2, "0"));
-      setTimeout(() => void refreshIot(), 300);
+      const refreshTimeout = window.setTimeout(() => void refreshIot(), 300);
+      timeoutRefs.current.push(refreshTimeout);
     } catch (e) {
       setError(`Write failed: ${String(e)}`);
     }
@@ -1369,7 +1387,8 @@ function IotModulePanel({ hw }: { hw: Hardware }) {
                   try {
                     await hw.writeIotHex(writeAddress, writeHex);
                     setWriteStatus("Write OK");
-                    setTimeout(() => void refreshIot(), 200);
+                    const writeRefreshTimeout = window.setTimeout(() => void refreshIot(), 200);
+                    timeoutRefs.current.push(writeRefreshTimeout);
                   } catch (e) {
                     setWriteStatus(`Write failed: ${String(e)}`);
                   }

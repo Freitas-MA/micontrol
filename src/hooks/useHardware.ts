@@ -493,8 +493,10 @@ export function useHardware() {
       setTouchpad((s) => (s ? { ...s, sensitivity } : null));
       try {
         await invoke("set_touchpad_sensitivity", { sensitivity });
+        touchpadDirtyUntil.current = 0;
       } catch (e) {
         setTouchpad(snap);
+        touchpadDirtyUntil.current = 0;
         console.error("[touchpad] set_touchpad_sensitivity failed:", e);
         throw e;
       }
@@ -508,8 +510,10 @@ export function useHardware() {
     setTouchpad((s) => (s ? { ...s, haptics_enabled: enabled } : null));
     try {
       await invoke("set_touchpad_haptics", { enabled });
+      touchpadDirtyUntil.current = 0;
     } catch (e) {
       setTouchpad(snap);
+      touchpadDirtyUntil.current = 0;
       console.error("[touchpad] set_touchpad_haptics failed:", e);
       throw e;
     }
@@ -521,8 +525,10 @@ export function useHardware() {
     setTouchpad((s) => (s ? { ...s, haptics_intensity: intensity } : null));
     try {
       await invoke("set_touchpad_haptics_intensity", { intensity });
+      touchpadDirtyUntil.current = 0;
     } catch (e) {
       setTouchpad(snap);
+      touchpadDirtyUntil.current = 0;
       console.error("[touchpad] set_touchpad_haptics_intensity failed:", e);
       throw e;
     }
@@ -534,8 +540,10 @@ export function useHardware() {
     setTouchpad((s) => (s ? { ...s, gesture_screenshot: enabled } : null));
     try {
       await invoke("set_touchpad_gesture_screenshot", { enabled });
+      touchpadDirtyUntil.current = 0;
     } catch (e) {
       setTouchpad(snap);
+      touchpadDirtyUntil.current = 0;
       console.error("[touchpad] set_touchpad_gesture_screenshot failed:", e);
       throw e;
     }
@@ -547,8 +555,10 @@ export function useHardware() {
     setTouchpad((s) => (s ? { ...s, trackpad_repress: enabled } : null));
     try {
       await invoke("set_touchpad_repress", { enabled });
+      touchpadDirtyUntil.current = 0;
     } catch (e) {
       setTouchpad(snap);
+      touchpadDirtyUntil.current = 0;
       console.error("[touchpad] set_touchpad_repress failed:", e);
       throw e;
     }
@@ -560,8 +570,10 @@ export function useHardware() {
     setTouchpad((s) => (s ? { ...s, edge_slide: enabled } : null));
     try {
       await invoke("set_touchpad_edge_slide", { enabled });
+      touchpadDirtyUntil.current = 0;
     } catch (e) {
       setTouchpad(snap);
+      touchpadDirtyUntil.current = 0;
       console.error("[touchpad] set_touchpad_edge_slide failed:", e);
       throw e;
     }
