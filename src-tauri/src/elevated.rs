@@ -15,8 +15,9 @@
 use crate::util::auth;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::sync::Mutex;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
@@ -59,7 +60,25 @@ pub fn run() -> ! {
                         } else {
                             // Re-deserialize into ElevCmd after verification.
                             match serde_json::from_value::<ElevCmd>(payload) {
-                                Ok(cmd) => dispatch(cmd),
+                                Ok(cmd) => {
+                                    // Check nonce anti-replay to prevent replay attacks.
+                                    if let Some(ref nonce) = cmd.nonce {
+                                        let mut seen = SEEN_NONCES.lock().unwrap();
+                                        if seen.is_none() {
+                                            *seen = Some(HashSet::new());
+                                        }
+                                        if !seen.as_mut().unwrap().insert(nonce.clone()) {
+                                            log::warn!(
+                                                "Replay attack detected: duplicate nonce {nonce}"
+                                            );
+                                            make_err(format!("Duplicate nonce: {nonce}"))
+                                        } else {
+                                            dispatch(cmd)
+                                        }
+                                    } else {
+                                        dispatch(cmd)
+                                    }
+                                }
                                 Err(e) => make_err(format!("Invalid command: {e}")),
                             }
                         }
@@ -90,9 +109,14 @@ pub fn run() -> ! {
     let json = serde_json::to_string(&wrapped)
         .unwrap_or_else(|_| r#"{"ok":false,"error":"serialize_error"}"#.to_string());
     let _ = std::fs::write(&pending.result_path, json);
-    auth::restrict_file_acl(&pending.result_path);
+    if let Err(e) = auth::restrict_file_acl(&pending.result_path) {
+        log::warn!("Failed to restrict ACL on result file: {e}");
+    }
     std::process::exit(0);
 }
+
+/// Tracks seen nonces to detect replay attacks.
+static SEEN_NONCES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 // ── Command/Result types ─────────────────────────────────────────────────────
 
@@ -390,65 +414,22 @@ fn result_path_for_request(request_id: &str) -> PathBuf {
 }
 
 fn select_pending_command(
-    dir: &std::path::Path,
+    _dir: &std::path::Path,
     wanted: Option<&str>,
 ) -> Result<PendingCommand, String> {
-    if let Some(request_id) = wanted {
-        let cmd_path = cmd_path_for_request(request_id);
-        if !cmd_path.exists() {
-            return Err(format!(
-                "request-specific command file not found for request_id={request_id}"
-            ));
-        }
-        return Ok(PendingCommand {
-            request_id: request_id.to_string(),
-            result_path: result_path_for_request(request_id),
-            cmd_path,
-        });
+    let request_id = wanted.ok_or_else(|| "Missing --request-id argument".to_string())?;
+
+    let cmd_path = cmd_path_for_request(request_id);
+    if !cmd_path.exists() {
+        return Err(format!(
+            "request-specific command file not found for request_id={request_id}"
+        ));
     }
-
-    // Scheduled-task path: no request-id in argv. Pick the newest request file.
-    let newest = std::fs::read_dir(dir)
-        .map_err(|e| format!("Cannot read elevated command directory: {e}"))?
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let name = path.file_name()?.to_str()?;
-            if !(name.starts_with("elev_cmd_") && name.ends_with(".json")) {
-                return None;
-            }
-            let request_id = name
-                .strip_prefix("elev_cmd_")?
-                .strip_suffix(".json")?
-                .to_string();
-            let modified = entry
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .unwrap_or(SystemTime::UNIX_EPOCH);
-            Some((modified, request_id, path))
-        })
-        .max_by_key(|(ts, _, _)| *ts);
-
-    if let Some((_, request_id, cmd_path)) = newest {
-        return Ok(PendingCommand {
-            result_path: result_path_for_request(&request_id),
-            request_id,
-            cmd_path,
-        });
-    }
-
-    // Legacy fallback for older protocol (single fixed file).
-    let legacy_cmd = dir.join("elev_cmd.json");
-    if legacy_cmd.exists() {
-        return Ok(PendingCommand {
-            request_id: "legacy".to_string(),
-            cmd_path: legacy_cmd,
-            result_path: dir.join("elev_result.json"),
-        });
-    }
-
-    Err("No pending elevated command file found".to_string())
+    Ok(PendingCommand {
+        request_id: request_id.to_string(),
+        result_path: result_path_for_request(request_id),
+        cmd_path,
+    })
 }
 
 #[cfg(test)]

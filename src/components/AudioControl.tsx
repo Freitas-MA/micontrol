@@ -72,8 +72,8 @@ export default function AudioControl({
 
   return (
     <div className="card">
-      <div className="card-title">🎵 Audio Control</div>
-      <p className="page-subtitle">Master volume and device management</p>
+      <div className="card-title">{t('audio.title')}</div>
+      <p className="page-subtitle">{t('audio.subtitle')}</p>
 
       {/* Volume Slider */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -88,9 +88,10 @@ export default function AudioControl({
             borderRadius: 'var(--r-xs)',
             transition: 'transform var(--t-fast)',
           }}
-          title={muted ? 'Unmute' : 'Mute'}
+          title={muted ? t('audio.unmute') : t('audio.mute')}
+          aria-label={muted ? t('audio.unmute') : t('audio.mute')}
         >
-          {volumeIcon}
+          <span aria-hidden="true">{volumeIcon}</span>
         </button>
         <input
           type="range"
@@ -102,15 +103,23 @@ export default function AudioControl({
           style={{ flex: 1, accentColor: 'var(--accent)' }}
         />
         <span style={{ minWidth: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-          {muted ? 'Muted' : `${volume}%`}
+          {muted ? t('audio.muted') : `${volume}%`}
         </span>
       </div>
 
-      {/* Device List */}
-      {devices && (
+      {/* Device List — loading state */}
+      {devices === null && (
+        <div className="loading-container">
+          <span className="spinner" />
+          <span>{t('audio.loadingDevices')}</span>
+        </div>
+      )}
+
+      {/* Device List — loaded */}
+      {devices !== null && devices.playback.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 8, color: 'var(--text-dim)', fontSize: 13 }}>
-            Playback Devices
+            {t('audio.playbackDevices')}
           </div>
           {devices.playback.slice(0, 5).map((d) => (
             <div
@@ -125,11 +134,16 @@ export default function AudioControl({
             >
               <span style={{ flex: 1, fontSize: 13 }}>{d.name}</span>
               <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                {d.is_default ? '✓ Default' : ''}
+                {d.is_default ? `✓ ${t('audio.defaultDevice')}` : ''}
               </span>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Device List — empty state */}
+      {devices !== null && devices.playback.length === 0 && (
+        <p style={{ marginTop: 12, color: 'var(--text-muted)' }}>{t('audio.noDevices')}</p>
       )}
     </div>
   );

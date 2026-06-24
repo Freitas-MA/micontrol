@@ -217,7 +217,9 @@ export default function TrayPopup({ hardware }: Props) {
           <div className="tray-quick-grid">
             <div className="tray-quick-card">
               <div className="tray-quick-head">
-                <span className="tray-quick-title">🔊 Audio</span>
+                <span className="tray-quick-title" aria-hidden="true">
+                  🔊 Audio
+                </span>
                 <button
                   className="tray-chip-btn"
                   onClick={() => void setMasterMute(!(audioState?.muted ?? false))}
@@ -245,7 +247,9 @@ export default function TrayPopup({ hardware }: Props) {
             {/* WiFi quick status */}
             <div className="tray-quick-card">
               <div className="tray-quick-head">
-                <span className="tray-quick-title">📶 WiFi</span>
+                <span className="tray-quick-title" aria-hidden="true">
+                  📶 WiFi
+                </span>
               </div>
               <div className="tray-quick-meta">{t('tray.openApp')} → WiFi Manager</div>
             </div>
@@ -262,7 +266,7 @@ export default function TrayPopup({ hardware }: Props) {
               style={{ width: '100%', justifyContent: 'space-between' }}
               onClick={() => setShowDisplay((v) => !v)}
             >
-              <span>🖥️ {t('tray.displaySettings')}</span>
+              <span aria-hidden="true">🖥️ {t('tray.displaySettings')}</span>
               <span style={{ fontSize: 10, opacity: 0.6 }}>{showDisplay ? '▲' : '▼'}</span>
             </button>
 
@@ -365,7 +369,7 @@ export default function TrayPopup({ hardware }: Props) {
               style={{ width: '100%', justifyContent: 'space-between' }}
               onClick={() => setShowFan((v) => !v)}
             >
-              <span>💨 {t('tray.fanControl')}</span>
+              <span aria-hidden="true">💨 {t('tray.fanControl')}</span>
               <span style={{ fontSize: 10, opacity: 0.6 }}>{showFan ? '▲' : '▼'}</span>
             </button>
 

@@ -25,16 +25,18 @@ This creates a file containing the private key and prints the public key.
 
 Replace the `pubkey` placeholder in `src-tauri/tauri.conf.json` with the generated public key.
 
-### Windows Code Signing (Optional but recommended for production)
+### Authenticode Code Signing (Optional but recommended)
 
-For production releases, obtain a code-signing certificate from a trusted CA (e.g., DigiCert, Sectigo).
+To avoid SmartScreen warnings:
 
-**Configure GitHub Secrets:**
+1. Obtain a code signing certificate (OV or EV) from a trusted CA.
+2. Export it as a PFX file.
+3. Base64-encode it: `base64 -w0 cert.pfx > cert.b64`
+4. Add two repository secrets:
+   - `WINDOWS_CERTIFICATE`: the base64-encoded PFX
+   - `WINDOWS_CERTIFICATE_PASSWORD`: the PFX password
 
-- `WINDOWS_CERTIFICATE` — base64-encoded PFX certificate
-- `WINDOWS_CERTIFICATE_PASSWORD` — the certificate password
-
-The release workflow will use these to sign the installer (Authenticode signature).
+If these secrets are not set, the release will succeed but the installer will be unsigned.
 
 ## Cutting a Release
 

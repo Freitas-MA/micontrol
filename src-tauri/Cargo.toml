@@ -31,6 +31,7 @@ rand = "0.8"
 fs2 = "0.4"
 libloading = "0.8"
 keyring = "3"
+sentry = "0.34"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
@@ -44,6 +45,9 @@ windows = { version = "0.58", features = [
   "Win32_System_Services",
   "Win32_System_Threading",
   "Win32_System_Pipes",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_System_Memory",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Shell",
   "Win32_UI_Shell_PropertiesSystem",

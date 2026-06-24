@@ -46,7 +46,16 @@ function detectLocale(): Locale {
   }
 }
 
+function setDocumentDir(lang: Locale): void {
+  // RTL languages: Arabic, Hebrew, Persian, Urdu
+  const rtlLanguages = ['ar', 'he', 'fa', 'ur'];
+  const isRtl = rtlLanguages.includes(lang);
+  document.documentElement.setAttribute('dir', isRtl ? 'rtl' : 'ltr');
+  document.documentElement.setAttribute('lang', lang);
+}
+
 let _locale: Locale = detectLocale();
+setDocumentDir(_locale);
 let _strings: Record<string, unknown> = LOCALES[_locale] as Record<string, unknown>;
 const _listeners = new Set<() => void>();
 
@@ -67,6 +76,7 @@ export function setLanguage(lang: Locale) {
   if (!(lang in LOCALES)) return;
   _locale = lang;
   _strings = LOCALES[lang] as Record<string, unknown>;
+  setDocumentDir(lang);
   try {
     localStorage.setItem(LANG_KEY, lang);
   } catch {

@@ -99,12 +99,14 @@ Entregar um app desktop Tauri (Rust + React) para controle de hardware Xiaomi no
 ## 2. Estado Arquitetural Atual
 
 ### Frontend (`src/`)
+
 - React + TypeScript + Vite.
 - `useHardware` concentra chamadas Tauri (`invoke`) e estado de hardware.
 - `MainWindow.tsx` agrega múltiplas abas e parte relevante da lógica de UI/fluxo.
 - Testes existentes com Vitest para componentes-chave e i18n.
 
 ### Backend (`src-tauri/src/`)
+
 - Camada `commands/*` como API Tauri.
 - Camada `hw/*` com integrações Win32/WMI/HID/IoT.
 - Fluxo de elevação de privilégio via bridge (`elev_bridge.rs` + `elevated.rs`).
@@ -188,6 +190,7 @@ Concluir beta interno somente quando:
 ## Development
 
 ### Prerequisites
+
 - Node.js 20+
 - Rust (stable)
 - Windows SDK (for Tauri builds)
@@ -195,6 +198,7 @@ Concluir beta interno somente quando:
 ### Running Checks Locally
 
 **Rust:**
+
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml
@@ -203,6 +207,7 @@ cargo fmt --check --manifest-path src-tauri/Cargo.toml
 ```
 
 **Frontend:**
+
 ```bash
 npm ci
 npx tsc --noEmit
@@ -212,8 +217,27 @@ npm run build
 ```
 
 **Full Tauri build:**
+
 ```bash
 npm run tauri build
 ```
 
 These checks run automatically in CI on every pull request.
+
+### Pre-commit Hooks
+
+This project uses [husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/lint-staged/lint-staged) to run pre-commit checks.
+
+When you first clone the repository, run:
+
+```bash
+npm install
+```
+
+This will automatically install the husky pre-commit hook. On every commit, lint-staged will:
+
+- Run `eslint --fix` and `prettier --write` on staged TypeScript/JavaScript files
+- Run `prettier --write` on staged JSON, CSS, and Markdown files
+- Run `rustfmt` on staged Rust files
+
+If any check fails, the commit will be aborted. Fix the issues and try again.

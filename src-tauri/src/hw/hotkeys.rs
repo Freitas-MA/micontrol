@@ -976,7 +976,10 @@ unsafe extern "system" fn keyboard_hook_proc(
         log::warn!(target: "hw::hotkeys", "keyboard_hook_proc: null l_param (n_code={})", n_code);
         return CallNextHookEx(None, n_code, w_param, l_param);
     }
-    let kb = &*(l_param.0 as *const KBDLLHOOKSTRUCT);
+    // SAFETY: kb_ptr is non-null (checked above). The LPARAM from WH_KEYBOARD_LL hooks always
+    // points to a valid KBDLLHOOKSTRUCT allocated by the OS for the duration of this callback.
+    let kb_ptr = l_param.0 as *const KBDLLHOOKSTRUCT;
+    let kb = unsafe { std::ptr::read_unaligned(kb_ptr) };
     let vk = kb.vkCode;
 
     // ── Skip keys we injected ourselves ──────────────────────────────────────
@@ -1261,7 +1264,9 @@ fn grant_consent(interpreter: &str, path: &str, args: &[String]) -> Result<(), S
     std::fs::write(&consent_file, json).map_err(|e| format!("Cannot write consent file: {e}"))?;
 
     // Restrict the ACL on the consent file.
-    crate::util::auth::restrict_file_acl(&consent_file);
+    if let Err(e) = crate::util::auth::restrict_file_acl(&consent_file) {
+        log::warn!("Failed to restrict ACL on consent file: {e}");
+    }
 
     Ok(())
 }

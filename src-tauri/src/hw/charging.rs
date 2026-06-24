@@ -61,8 +61,16 @@ pub fn get_charging_threshold() -> Result<u8> {
 // ── Private helpers ──────────────────────────────────────────────────────────
 
 /// IPC message layout discovered from IoTService.exe binary analysis.
+///
 /// src_id=1 (MiControl), dst_id=2 (IoTDriver), msg_type=0x1003 (set charging limit)
-#[repr(C, packed)]
+///
+/// # Safety
+///
+/// This struct maps to the binary wire format used for IoTService IPC.
+/// The fields are already naturally aligned (two u16, two u32, [u8; 4])
+/// so `#[repr(C)]` is sufficient — no `packed` needed. All accesses via
+/// byte-slice casts are safe because the struct has no padding.
+#[repr(C)]
 struct IotIpcMsg {
     src_id: u16,
     dst_id: u16,
@@ -70,6 +78,9 @@ struct IotIpcMsg {
     payload_len: u32,
     payload: [u8; 4],
 }
+
+/// Compile-time assertion: IotIpcMsg must be exactly 16 bytes.
+const _: () = assert!(std::mem::size_of::<IotIpcMsg>() == 16);
 
 fn send_via_pipe(threshold: u8) -> Result<()> {
     #[cfg(windows)]
@@ -97,8 +108,8 @@ fn send_via_pipe(threshold: u8) -> Result<()> {
         };
 
         let bytes: &[u8] = unsafe {
-            // SAFETY: IotIpcMsg is #[repr(C, packed)] with known size; casting its address to a
-            // byte slice yields a valid, sized buffer for write_all to the pipe.
+            // SAFETY: IotIpcMsg is #[repr(C)] with no padding and known size (16 bytes);
+            // casting its address to a byte slice yields a valid, sized buffer for write_all.
             std::slice::from_raw_parts(
                 &msg as *const IotIpcMsg as *const u8,
                 std::mem::size_of::<IotIpcMsg>(),

@@ -147,7 +147,10 @@ export default function AiAdvisor({ hw, ai, onOpenSettings }: Props) {
 
               {/* Loading spinner */}
               {status === 'loading' && (
-                <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                <div
+                  role="status"
+                  style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}
+                >
                   {t('ai.analyzingHint')}
                 </div>
               )}
@@ -155,6 +158,7 @@ export default function AiAdvisor({ hw, ai, onOpenSettings }: Props) {
               {/* Error */}
               {status === 'error' && error && (
                 <div
+                  role="alert"
                   style={{
                     padding: '8px 12px',
                     borderRadius: 6,
@@ -171,6 +175,7 @@ export default function AiAdvisor({ hw, ai, onOpenSettings }: Props) {
               {/* Result */}
               {status === 'done' && result && (
                 <div
+                  role="status"
                   style={{
                     marginTop: 4,
                     padding: '12px 14px',
@@ -188,7 +193,7 @@ export default function AiAdvisor({ hw, ai, onOpenSettings }: Props) {
                       justifyContent: 'space-between',
                     }}
                   >
-                    <span>🤖 {ai.settings.openai_model}</span>
+                    <span aria-hidden="true">🤖 {ai.settings.openai_model}</span>
                     <button
                       className="btn-inline"
                       onClick={() => {

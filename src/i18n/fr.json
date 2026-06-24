@@ -516,7 +516,14 @@
     "testOk": "Connexion réussie",
     "reset": "Restaurer les défauts",
     "storageNote": "La clé API est stockée en toute sécurité dans le Gestionnaire d'informations d'identification Windows. Elle est envoyée au fournisseur d'IA lors des demandes d'analyse.",
-    "apiKeyMissing": "Clé API non configurée. Allez dans Paramètres pour ajouter votre clé."
+    "apiKeyMissing": "Clé API non configurée. Allez dans Paramètres pour ajouter votre clé.",
+    "dataDeletion": "Suppression des Données",
+    "dataDeletionDesc": "Supprimez toutes vos données, y compris les journaux, les identifiants et les paramètres stockés sur cet appareil.",
+    "deleteAllData": "Supprimer Toutes Mes Données",
+    "deleting": "Suppression...",
+    "deleteSuccess": "Toutes les données ont été supprimées avec succès.",
+    "deleteError": "Échec de la suppression de toutes les données. Voir la console pour plus de détails.",
+    "confirmDelete": "Êtes-vous sûr ? Cela supprimera définitivement toutes vos données, y compris les clés API, les journaux et les paramètres. Cela ne peut pas être annulé."
   },
   "ai": {
     "title": "Conseiller système IA",
@@ -526,7 +533,23 @@
     "analyzeBtn": "Analyser mon système",
     "analyzing": "Analyse en cours…",
     "analyzingHint": "Envoi des données matérielles au modèle IA…",
-    "clear": "Effacer"
+    "clear": "Effacer",
+    "logsTitle": "Journaux du Mode IA",
+    "loggingActive": "Journalisation active — snapshot toutes les 30 s",
+    "configureSmartMode": "Configurez le mode Smart pour démarrer la journalisation",
+    "configureApiKeyLogging": "Configurez la clé API IA dans Paramètres pour activer la journalisation",
+    "viewLogs": "Voir les Journaux",
+    "openLogFolder": "Ouvrir le dossier des journaux dans l'Explorateur",
+    "noEntries": "Aucune entrée de journal pour l'instant. Activez le mode Smart ou Smart Acceleration pour commencer l'enregistrement.",
+    "showingEntries": "Affichage des {n} entrées les plus récentes",
+    "refreshLogs": "Actualiser",
+    "columnTime": "Heure",
+    "columnMode": "Mode",
+    "columnCpu": "CPU°C",
+    "columnGpu": "GPU°C",
+    "columnTdp": "TDP W",
+    "columnCpuPct": "CPU%",
+    "columnGpuPct": "GPU%"
   },
   "aiAnalysis": {
     "title": "Analyse par IA",
@@ -582,7 +605,16 @@
     }
   },
   "audio": {
+    "loadingDevices": "Chargement des périphériques audio...",
+    "noDevices": "Aucun périphérique audio trouvé",
     "loadDevicesError": "Échec du chargement des périphériques audio",
-    "initError": "Échec de l'initialisation du contrôle audio"
+    "initError": "Échec de l'initialisation du contrôle audio",
+    "title": "🎵 Contrôle Audio",
+    "subtitle": "Volume maître et gestion des périphériques",
+    "mute": "Muet",
+    "unmute": "Réactiver le son",
+    "muted": "Muet",
+    "playbackDevices": "Périphériques de Lecture",
+    "defaultDevice": "Par défaut"
   }
 }

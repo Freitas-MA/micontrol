@@ -62,6 +62,44 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Sign installer with Authenticode
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$WINDOWS_CERTIFICATE" ]; then
+            echo "::warning::WINDOWS_CERTIFICATE secret not set. Skipping code signing."
+            echo "::warning::Users will see SmartScreen warnings when installing."
+            exit 0
+          fi
+
+          # Decode the certificate from base64
+          echo "$WINDOWS_CERTIFICATE" | base64 -d > cert.pfx
+
+          # Find the MSI installer
+          MSI_PATH=$(find src-tauri/target/release/bundle -name "*.msi" -type f | head -1)
+          EXE_PATH=$(find src-tauri/target/release/bundle -name "*.exe" -type f | head -1)
+
+          # Sign the MSI installer
+          if [ -n "$MSI_PATH" ]; then
+            echo "Signing $MSI_PATH..."
+            signtool sign /f cert.pfx /p "$WINDOWS_CERTIFICATE_PASSWORD" \
+              /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com \
+              "$MSI_PATH" || echo "::warning::MSI signing failed"
+          fi
+
+          # Sign the EXE if it exists
+          if [ -n "$EXE_PATH" ]; then
+            echo "Signing $EXE_PATH..."
+            signtool sign /f cert.pfx /p "$WINDOWS_CERTIFICATE_PASSWORD" \
+              /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com \
+              "$EXE_PATH" || echo "::warning::EXE signing failed"
+          fi
+
+          # Clean up the certificate file
+          rm -f cert.pfx
+        shell: bash
+
       - name: Generate latest.json updater manifest
         run: |
           $version = node -p "require('./package.json').version"

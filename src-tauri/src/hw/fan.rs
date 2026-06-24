@@ -44,13 +44,14 @@ struct EsifReadings {
 fn get_esif_readings() -> Result<EsifReadings> {
     #[cfg(windows)]
     {
+        use crate::hw::wmi_cache;
         use std::collections::HashMap;
-        use wmi::{COMLibrary, WMIConnection};
-        let com = COMLibrary::new().context("COM")?;
-        let wmi = WMIConnection::with_namespace_path("ROOT\\WMI", com.into()).context("WMI")?;
-        let results: Vec<HashMap<String, wmi::Variant>> = wmi
-            .raw_query("SELECT InstanceName, Temperature, Power FROM EsifDeviceInformation")
-            .unwrap_or_default();
+
+        let results: Vec<HashMap<String, wmi::Variant>> = wmi_cache::with_wmi(|wmi| {
+            Ok(wmi
+                .raw_query("SELECT InstanceName, Temperature, Power FROM EsifDeviceInformation")
+                .unwrap_or_default())
+        })?;
 
         let extract_int = |row: &HashMap<String, wmi::Variant>, key: &str| -> Option<i64> {
             match row.get(key) {
@@ -102,11 +103,11 @@ fn get_esif_readings() -> Result<EsifReadings> {
             .and_then(|r| extract_int(r, "Power"))
             .map(|v| (v as f32 / 10.0).clamp(0.0, 150.0));
 
-        return Ok(EsifReadings {
+        Ok(EsifReadings {
             cpu_temp,
             gpu_temp,
             tdp_watts,
-        });
+        })
     }
     #[cfg(not(windows))]
     {
@@ -161,13 +162,14 @@ pub fn set_fan_mode(mode: FanMode, speed_percent: u8) -> Result<()> {
 fn get_fan_rpm_wmi() -> Result<u32> {
     #[cfg(windows)]
     {
+        use crate::hw::wmi_cache;
         use std::collections::HashMap;
-        use wmi::{COMLibrary, WMIConnection};
-        let com = COMLibrary::new().context("COM")?;
-        let wmi = WMIConnection::new(com.into()).context("WMI")?;
-        let results: Vec<HashMap<String, wmi::Variant>> = wmi
-            .raw_query("SELECT CurrentReading FROM Win32_Fan")
-            .unwrap_or_default();
+
+        let results: Vec<HashMap<String, wmi::Variant>> = wmi_cache::with_cimv2(|wmi| {
+            Ok(wmi
+                .raw_query("SELECT CurrentReading FROM Win32_Fan")
+                .unwrap_or_default())
+        })?;
         if let Some(row) = results.first() {
             match row.get("CurrentReading") {
                 Some(wmi::Variant::UI4(v)) => return Ok(*v),
@@ -399,7 +401,7 @@ where
         }
 
         for &fan in &handles[..count as usize] {
-            f(fan, &*lib)?;
+            f(fan, lib)?;
         }
         Ok(count as usize)
     })

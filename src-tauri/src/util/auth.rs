@@ -10,6 +10,7 @@ use fs2::FileExt;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use sha2::Sha256;
+use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -91,8 +92,12 @@ pub fn get_or_create_key() -> Result<Vec<u8>, String> {
 
     let _ = file.unlock();
 
-    // Restrict ACL on the key file
-    restrict_file_acl(&path);
+    // Restrict ACL on the key file — fail if we can't lock it down
+    restrict_file_acl(&path).map_err(|e| {
+        // If ACL restriction fails, delete the key file and return error
+        let _ = std::fs::remove_file(&path);
+        format!("Failed to restrict ACL on key file: {e}")
+    })?;
 
     Ok(key.to_vec())
 }
@@ -204,30 +209,113 @@ pub fn verify_payload(payload: &mut serde_json::Value, key: &[u8]) -> Result<(),
     Ok(())
 }
 
-/// Best-effort: restrict the ACL on a file to the current user and SYSTEM only.
+/// Restrict the ACL on a file so only the current user (and SYSTEM) have access.
 ///
-/// Uses `icacls` to remove inherited permissions and grant full control only to
-/// the current user and SYSTEM.  Failures are logged but do not propagate — the
-/// default ACL on `%LOCALAPPDATA%` is already user-only.
+/// Uses `SetNamedSecurityInfoW` Win32 API instead of shelling out to `icacls.exe`.
+/// Returns an error if the restriction fails — callers MUST NOT use the key if this fails.
 #[cfg(windows)]
-pub fn restrict_file_acl(path: &std::path::Path) {
-    let username = std::env::var("USERNAME").unwrap_or_default();
-    let path_str = path.to_string_lossy();
-    let output = std::process::Command::new("icacls")
-        .arg(&*path_str)
-        .args(["/inheritance:r"])
-        .args(["/grant", &format!("{username}:F")])
-        .args(["/grant", "SYSTEM:F"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    if let Err(e) = output {
-        log::warn!("Failed to restrict ACL on {}: {e}", path.display());
+pub(crate) fn restrict_file_acl(path: &std::path::Path) -> Result<(), String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
+    use windows::Win32::Security::Authorization::{
+        BuildExplicitAccessWithNameW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W,
+        SET_ACCESS, SE_FILE_OBJECT,
+    };
+    use windows::Win32::Security::{
+        ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE, PROTECTED_DACL_SECURITY_INFORMATION,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        DELETE, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    };
+
+    // Convert path to wide string
+    let path_w: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    // Get the current username
+    let username = std::env::var("USERNAME").map_err(|e| format!("Cannot get USERNAME: {e}"))?;
+
+    // Build wide strings that live long enough
+    let username_w: Vec<u16> = username.encode_utf16().chain(std::iter::once(0)).collect();
+    let system_w: Vec<u16> = "SYSTEM".encode_utf16().chain(std::iter::once(0)).collect();
+
+    let access_mask =
+        FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0 | FILE_GENERIC_EXECUTE.0 | DELETE.0;
+
+    // Build explicit access entry for the current user
+    let mut user_ea = EXPLICIT_ACCESS_W::default();
+    // SAFETY: BuildExplicitAccessWithNameW copies the trustee name internally
+    unsafe {
+        BuildExplicitAccessWithNameW(
+            &mut user_ea,
+            PCWSTR(username_w.as_ptr()),
+            access_mask,
+            SET_ACCESS,
+            NO_INHERITANCE,
+        );
     }
+
+    // Build explicit access entry for SYSTEM
+    let mut system_ea = EXPLICIT_ACCESS_W::default();
+    // SAFETY: same as above
+    unsafe {
+        BuildExplicitAccessWithNameW(
+            &mut system_ea,
+            PCWSTR(system_w.as_ptr()),
+            access_mask,
+            SET_ACCESS,
+            NO_INHERITANCE,
+        );
+    }
+
+    let entries = [user_ea, system_ea];
+
+    // Create a new ACL from the entries
+    let mut new_acl: *mut ACL = std::ptr::null_mut();
+    // SAFETY: SetEntriesInAclW allocates a new ACL; we free it with LocalFree below
+    let _ = unsafe { SetEntriesInAclW(Some(&entries), None, &mut new_acl) };
+    // Check if SetEntriesInAclW succeeded
+    if new_acl.is_null() {
+        return Err("SetEntriesInAclW returned null ACL".to_string());
+    }
+
+    // Set the security descriptor on the file (replace DACL, remove inheritance)
+    // SAFETY: path_w is a valid null-terminated wide string, new_acl is a valid ACL
+    let result = unsafe {
+        SetNamedSecurityInfoW(
+            PCWSTR(path_w.as_ptr()),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            Some(new_acl.cast()),
+            None,
+        )
+    };
+
+    // Free the ACL memory allocated by SetEntriesInAclW
+    // SAFETY: new_acl was allocated by SetEntriesInAclW and must be freed with LocalFree
+    unsafe {
+        let _ = LocalFree(HLOCAL(new_acl as _));
+    }
+
+    if result != ERROR_SUCCESS {
+        return Err(format!(
+            "SetNamedSecurityInfoW failed with error code {}",
+            result.0
+        ));
+    }
+
+    Ok(())
 }
 
 #[cfg(not(windows))]
-pub fn restrict_file_acl(_path: &std::path::Path) {}
+pub(crate) fn restrict_file_acl(_path: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

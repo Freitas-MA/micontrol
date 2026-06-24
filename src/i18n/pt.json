@@ -246,7 +246,9 @@
     "settings": "Definições",
     "percent": "%",
     "watts": "W",
-    "unknown": "Desconhecido"
+    "unknown": "Desconhecido",
+    "show": "Mostrar",
+    "hide": "Ocultar"
   },
   "updates": {
     "title": "Drivers & BIOS",
@@ -331,7 +333,14 @@
     "testOk": "Ligação bem-sucedida",
     "reset": "Restaurar predefinições",
     "storageNote": "A chave API é armazenada com segurança no Gerenciador de Credenciais do Windows. Ela é enviada ao provedor de IA ao fazer solicitações de análise.",
-    "apiKeyMissing": "Chave API não configurada. Vá a Definições para adicionar a sua chave."
+    "apiKeyMissing": "Chave API não configurada. Vá a Definições para adicionar a sua chave.",
+    "dataDeletion": "Exclusão de Dados",
+    "dataDeletionDesc": "Exclua todos os seus dados incluindo logs, credenciais e configurações armazenados neste dispositivo.",
+    "deleteAllData": "Excluir Todos os Meus Dados",
+    "deleting": "Excluindo...",
+    "deleteSuccess": "Todos os dados foram excluídos com sucesso.",
+    "deleteError": "Falha ao excluir todos os dados. Veja o console para detalhes.",
+    "confirmDelete": "Tem certeza? Isso excluirá permanentemente todos os seus dados incluindo chaves de API, logs e configurações. Isso não pode ser desfeito."
   },
   "ai": {
     "title": "Conselheiro de Sistema por IA",
@@ -341,9 +350,34 @@
     "analyzeBtn": "Analisar o Meu Sistema",
     "analyzing": "A analisar…",
     "analyzingHint": "A enviar dados de hardware para o modelo de IA…",
-    "clear": "Limpar"
+    "clear": "Limpar",
+    "logsTitle": "Logs do Modo IA",
+    "loggingActive": "Registo ativo — snapshot a cada 30 s",
+    "configureSmartMode": "Configure o modo Smart para iniciar o registo",
+    "configureApiKeyLogging": "Configure a chave de API de IA nas Definições para ativar o registo",
+    "viewLogs": "Ver Logs",
+    "openLogFolder": "Abrir pasta de logs no Explorador",
+    "noEntries": "Ainda sem entradas de log. Ative o modo Smart ou Smart Acceleration para começar a gravar.",
+    "showingEntries": "A mostrar {n} entradas mais recentes",
+    "refreshLogs": "Atualizar",
+    "columnTime": "Hora",
+    "columnMode": "Modo",
+    "columnCpu": "CPU°C",
+    "columnGpu": "GPU°C",
+    "columnTdp": "TDP W",
+    "columnCpuPct": "CPU%",
+    "columnGpuPct": "GPU%"
   },
   "audio": {
-    "loadDevicesError": "Falha ao carregar dispositivos de áudio"
+    "loadingDevices": "Carregando dispositivos de áudio...",
+    "noDevices": "Nenhum dispositivo de áudio encontrado",
+    "loadDevicesError": "Falha ao carregar dispositivos de áudio",
+    "title": "🎵 Controlo de Áudio",
+    "subtitle": "Volume mestre e gestão de dispositivos",
+    "mute": "Silenciar",
+    "unmute": "Ativar som",
+    "muted": "Silenciado",
+    "playbackDevices": "Dispositivos de Reprodução",
+    "defaultDevice": "Padrão"
   }
 }

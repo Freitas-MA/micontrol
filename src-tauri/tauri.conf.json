@@ -16,7 +16,7 @@
         "title": "MiControl",
         "width": 950,
         "height": 660,
-        "minWidth": 800,
+        "minWidth": 600,
         "minHeight": 560,
         "resizable": true,
         "decorations": true,
@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https:"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https:"
     }
   },
   "bundle": {
@@ -53,9 +53,7 @@
       "active": true,
       "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZCQjc3MTVCMkVDNDEyRDQKUldUVUVzUXVXM0czKzl2bGpUdjFrc2Nsd0d3SUwwUmJ3WGIrVTRELyt6VFZ0UEpsTWpqV3lKbHMK",
-      "endpoints": [
-        "https://github.com/Freitas-MA/micontrol/releases/latest/download/latest.json"
-      ]
+      "endpoints": ["https://github.com/Freitas-MA/micontrol/releases/latest/download/latest.json"]
     }
   }
 }

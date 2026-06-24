@@ -430,9 +430,21 @@ fn send_ipc_message(dst_id: u16, msg_type: u32, payload: &[u8]) -> Result<Vec<u8
             }
         }
 
-        // SAFETY: resp_header_buf is exactly IPC_HEADER_SIZE (12) bytes and was filled by read_exact_timeout. IpcWireHeader is #[repr(C)] with four fields matching the known wire format (two u16 + two u32 = 12 bytes, no padding), so the pointer cast is valid and aligned.
-        let resp_header: &IpcWireHeader =
-            unsafe { &*(resp_header_buf.as_ptr() as *const IpcWireHeader) };
+        // Validate buffer is large enough for the header before casting.
+        if resp_header_buf.len() < std::mem::size_of::<IpcWireHeader>() {
+            anyhow::bail!(
+                "IPC buffer too small for header: {} < {}",
+                resp_header_buf.len(),
+                std::mem::size_of::<IpcWireHeader>()
+            );
+        }
+
+        // SAFETY: resp_header_buf has been validated to contain at least size_of::<IpcWireHeader>()
+        // bytes and was filled by read_exact_timeout. IpcWireHeader is #[repr(C)] with four fields
+        // matching the known wire format (two u16 + two u32 = 12 bytes, no padding). Using
+        // read_unaligned avoids alignment issues on the stack-allocated buffer.
+        let resp_header: IpcWireHeader =
+            unsafe { std::ptr::read_unaligned(resp_header_buf.as_ptr() as *const IpcWireHeader) };
 
         // Fail-closed: reject responses with unknown message types.
         // This prevents processing unexpected or potentially malicious messages
@@ -449,7 +461,7 @@ fn send_ipc_message(dst_id: u16, msg_type: u32, payload: &[u8]) -> Result<Vec<u8
         // Response authentication: verify src_id/dst_id match expectations.
         // The response should come from the destination we sent to (dst_id)
         // and be addressed to us (CLIENT_ID).
-        validate_response_header(resp_header, dst_id, CLIENT_ID).with_context(|| {
+        validate_response_header(&resp_header, dst_id, CLIENT_ID).with_context(|| {
             format!("Response auth failed for request #{seq} (msg_type=0x{msg_type:04X})")
         })?;
 
@@ -1023,7 +1035,8 @@ mod tests {
     fn test_read_exact_timeout_zero_length() {
         // A zero-length buffer should succeed immediately (loop doesn't execute).
         // We need a valid File handle; use the test binary itself.
-        let mut file = std::fs::File::open(std::env::current_exe().unwrap()).unwrap();
+        let exe = std::env::current_exe().expect("get current exe path in test");
+        let mut file = std::fs::File::open(&exe).expect("open test binary in test");
         let mut buf: &mut [u8] = &mut [];
         let result = read_exact_timeout(&mut file, &mut buf, std::time::Duration::from_secs(1));
         assert!(result.is_ok(), "zero-length read should succeed");

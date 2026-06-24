@@ -541,7 +541,14 @@
     "privacyPolicy": "Privacy Policy",
     "privacyPolicyDesc": "View how your data is collected and used",
     "consentGrantedAt": "Consent granted on",
-    "revokedAt": "Consent revoked"
+    "revokedAt": "Consent revoked",
+    "dataDeletion": "Data Deletion",
+    "dataDeletionDesc": "Delete all your data including logs, credentials, and settings stored on this device.",
+    "deleteAllData": "Delete All My Data",
+    "deleting": "Deleting...",
+    "deleteSuccess": "All data has been deleted successfully.",
+    "deleteError": "Failed to delete all data. See console for details.",
+    "confirmDelete": "Are you sure? This will permanently delete all your data including API keys, logs, and settings. This cannot be undone."
   },
   "ai": {
     "title": "AI System Advisor",
@@ -553,7 +560,23 @@
     "analyzingHint": "Sending hardware data to the AI model…",
     "clear": "Clear",
     "consentRequired": "Telemetry consent required. Please allow telemetry data sharing in Settings → Privacy to use AI features.",
-    "consentRequiredDesc": "To use AI features, please allow telemetry data sharing in the consent dialog."
+    "consentRequiredDesc": "To use AI features, please allow telemetry data sharing in the consent dialog.",
+    "logsTitle": "AI Mode Logs",
+    "loggingActive": "Logging active — snapshot every 30 s",
+    "configureSmartMode": "Configure a Smart mode to start logging",
+    "configureApiKeyLogging": "Configure AI API key in Settings to enable logging",
+    "viewLogs": "View Logs",
+    "openLogFolder": "Open log folder in Explorer",
+    "noEntries": "No log entries yet. Activate Smart or Smart Acceleration mode to start recording.",
+    "showingEntries": "Showing {n} most recent entries",
+    "refreshLogs": "Refresh",
+    "columnTime": "Time",
+    "columnMode": "Mode",
+    "columnCpu": "CPU°C",
+    "columnGpu": "GPU°C",
+    "columnTdp": "TDP W",
+    "columnCpuPct": "CPU%",
+    "columnGpuPct": "GPU%"
   },
   "consent": {
     "dialog": {
@@ -642,7 +665,16 @@
     }
   },
   "audio": {
+    "loadingDevices": "Loading audio devices...",
+    "noDevices": "No audio devices found",
     "loadDevicesError": "Failed to load audio devices",
-    "initError": "Failed to initialize audio control"
+    "initError": "Failed to initialize audio control",
+    "title": "🎵 Audio Control",
+    "subtitle": "Master volume and device management",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "muted": "Muted",
+    "playbackDevices": "Playback Devices",
+    "defaultDevice": "Default"
   }
 }

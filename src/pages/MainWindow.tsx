@@ -278,7 +278,9 @@ function PerformanceTab({
                 gap: 8,
               }}
             >
-              <span style={{ fontSize: 13 }}>🔌 {t('performance.powerProfiles.pluggedIn')}</span>
+              <span style={{ fontSize: 13 }} aria-hidden="true">
+                🔌 {t('performance.powerProfiles.pluggedIn')}
+              </span>
               <select
                 className="select-input"
                 style={{ minWidth: 160 }}
@@ -317,7 +319,9 @@ function PerformanceTab({
                 gap: 8,
               }}
             >
-              <span style={{ fontSize: 13 }}>🔋 {t('performance.powerProfiles.onBattery')}</span>
+              <span style={{ fontSize: 13 }} aria-hidden="true">
+                🔋 {t('performance.powerProfiles.onBattery')}
+              </span>
               <select
                 className="select-input"
                 style={{ minWidth: 160 }}
@@ -368,14 +372,14 @@ function PerformanceTab({
         >
           <div>
             <div className="card-title" style={{ marginBottom: 2 }}>
-              AI Mode Logs
+              {t('ai.logsTitle')}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {isAiMode && aiApiKeySet
-                ? 'Logging active — snapshot every 30 s'
+                ? t('ai.loggingActive')
                 : aiApiKeySet
-                  ? 'Configure a Smart mode to start logging'
-                  : 'Configure AI API key in Settings to enable logging'}
+                  ? t('ai.configureSmartMode')
+                  : t('ai.configureApiKeyLogging')}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -386,13 +390,13 @@ function PerformanceTab({
                 setShowLogs((v) => !v);
               }}
             >
-              {showLogs ? 'Hide' : 'View Logs'}
+              {showLogs ? t('common.hide') : t('ai.viewLogs')}
             </button>
             <button
               className="btn-secondary"
               style={{ fontSize: 12 }}
               onClick={() => void hw.openAiLogsDir()}
-              title="Open log folder in Explorer"
+              title={t('ai.openLogFolder')}
             >
               📂
             </button>
@@ -410,7 +414,7 @@ function PerformanceTab({
                   fontSize: 13,
                 }}
               >
-                Loading…
+                {t('common.loading')}
               </div>
             ) : logEntries.length === 0 ? (
               <div
@@ -421,7 +425,7 @@ function PerformanceTab({
                   fontSize: 13,
                 }}
               >
-                No log entries yet. Activate Smart or Smart Acceleration mode to start recording.
+                {t('ai.noEntries')}
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
@@ -434,25 +438,25 @@ function PerformanceTab({
                       }}
                     >
                       <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 500 }}>
-                        Time
+                        {t('ai.columnTime')}
                       </th>
                       <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 500 }}>
-                        Mode
+                        {t('ai.columnMode')}
                       </th>
                       <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 500 }}>
-                        CPU°C
+                        {t('ai.columnCpu')}
                       </th>
                       <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 500 }}>
-                        GPU°C
+                        {t('ai.columnGpu')}
                       </th>
                       <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 500 }}>
-                        TDP W
+                        {t('ai.columnTdp')}
                       </th>
                       <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 500 }}>
-                        CPU%
+                        {t('ai.columnCpuPct')}
                       </th>
                       <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 500 }}>
-                        GPU%
+                        {t('ai.columnGpuPct')}
                       </th>
                     </tr>
                   </thead>
@@ -530,14 +534,14 @@ function PerformanceTab({
                   }}
                 >
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                    Showing {logEntries.length} most recent entries
+                    {t('ai.showingEntries', { n: String(logEntries.length) })}
                   </span>
                   <button
                     className="btn-secondary"
                     style={{ fontSize: 11 }}
                     onClick={() => void loadLogs()}
                   >
-                    ↻ Refresh
+                    ↻ {t('ai.refreshLogs')}
                   </button>
                 </div>
               </div>
@@ -1564,7 +1568,9 @@ function IotModulePanel({ hw }: { hw: Hardware }) {
           IoT Module
         </div>
         <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', padding: '16px 0' }}>
-          <span style={{ fontSize: 40, lineHeight: 1 }}>🔒</span>
+          <span style={{ fontSize: 40, lineHeight: 1 }} aria-hidden="true">
+            🔒
+          </span>
           <div>
             <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>
               Administrator required
@@ -2238,7 +2244,7 @@ export default function MainWindow({
 
   return (
     <div className="app-layout">
-      <nav className="sidebar">
+      <nav aria-label="Main navigation" className="sidebar">
         <div className="sidebar-logo">
           <MiControlIcon size={22} />
           MiControl
@@ -2248,8 +2254,11 @@ export default function MainWindow({
             key={item.id}
             className={`sidebar-item ${activeTab === item.id ? 'active' : ''}`}
             onClick={() => onTabChange(item.id)}
+            aria-label={t(item.label as Parameters<typeof t>[0])}
           >
-            <span className="sidebar-icon">{item.icon}</span>
+            <span className="sidebar-icon" aria-hidden="true">
+              {item.icon}
+            </span>
             {t(item.label as Parameters<typeof t>[0])}
           </button>
         ))}

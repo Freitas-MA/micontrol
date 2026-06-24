@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import MainWindow from './pages/MainWindow';
 import TrayPopup from './pages/TrayPopup';
 import BrightnessOsd from './components/BrightnessOsd';
@@ -44,11 +45,42 @@ if (isTrayPopup) {
   document.documentElement.classList.add('tray-window');
 }
 
+// ── Sentry crash reporting (respects telemetry consent) ──────────────────────
+
+function useSentry() {
+  useEffect(() => {
+    let cancelled = false;
+    const init = async () => {
+      try {
+        // Only send crash reports if user has granted telemetry consent
+        const consent = await invoke<string | null>('get_secret', { key: 'telemetry_consent' });
+        const dsn = import.meta.env.VITE_SENTRY_DSN;
+        if (!dsn || !consent?.includes('granted') || cancelled) return;
+
+        const Sentry = await import('@sentry/react');
+        Sentry.init({
+          dsn,
+          tracesSampleRate: 0.1,
+          environment: import.meta.env.DEV ? 'development' : 'production',
+        });
+      } catch {
+        // Sentry init is best-effort
+      }
+    };
+    init();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+}
+
 export default function App() {
   // The brightness OSD window needs a transparent body — no providers needed.
   if (isBrightnessOsd) {
     return <BrightnessOsd />;
   }
+
+  useSentry();
 
   const hardware = useHardware();
   const [activeTab, setActiveTab] = useState(

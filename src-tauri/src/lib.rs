@@ -75,6 +75,20 @@ async fn open_main_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ── Data deletion (GDPR Art.17, S10-012) ─────────────────────────────────────
+
+#[tauri::command]
+fn delete_all_user_data(
+    app: tauri::AppHandle,
+) -> Result<util::data_deletion::DeleteDataReport, String> {
+    util::data_deletion::delete_all_user_data(&app)
+}
+
+#[tauri::command]
+fn rotate_logs(app: tauri::AppHandle) -> Result<u32, String> {
+    util::data_deletion::rotate_logs(&app)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     util::panic::install_panic_hook();
@@ -83,6 +97,33 @@ pub fn run() {
     }
     if let Some(path) = crate::debug_log::dev_log_path() {
         log::info!(target: "devlog", "current dev log file: {}", path.display());
+    }
+
+    // ── Sentry crash reporting ──────────────────────────────────────────────
+    // Initialize before the Tauri builder so that panics during setup are caught.
+    // The guard MUST leak by std::mem::forget to live for the entire process lifetime.
+    if let Ok(dsn) = std::env::var("SENTRY_DSN") {
+        if !dsn.is_empty() {
+            let guard = sentry::init((
+                dsn,
+                sentry::ClientOptions {
+                    release: Some(format!("micontrol@{}", env!("CARGO_PKG_VERSION")).into()),
+                    environment: Some(
+                        (if cfg!(debug_assertions) {
+                            "development"
+                        } else {
+                            "production"
+                        })
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+            ));
+            log::info!("Sentry crash reporting initialized");
+            // Leak the guard so it lives for the entire process lifetime.
+            // If dropped, the Sentry client shuts down and stops capturing panics.
+            std::mem::forget(guard);
+        }
     }
 
     tauri::Builder::default()
@@ -198,6 +239,9 @@ pub fn run() {
             commands::credentials::set_secret,
             commands::credentials::get_secret,
             commands::credentials::delete_secret,
+            // Data deletion (S10-012)
+            delete_all_user_data,
+            rotate_logs,
         ])
         .setup(|app| {
             // Hardware discovery — load cached profile or scan on first run
@@ -280,7 +324,11 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&open, &quit])?;
 
             let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(app.default_window_icon().cloned().unwrap_or_else(|| {
+                    log::warn!("No default window icon configured, using built-in fallback");
+                    tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                        .expect("built-in fallback icon to be valid")
+                }))
                 .tooltip("MiControl")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {

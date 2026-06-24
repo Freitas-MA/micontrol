@@ -25,38 +25,36 @@ pub struct ProcessInfo {
 pub fn get_process_list() -> Vec<ProcessInfo> {
     #[cfg(windows)]
     {
+        use crate::hw::wmi_cache;
         use std::collections::HashMap;
-        use wmi::{COMLibrary, WMIConnection};
 
-        let com = match COMLibrary::new() {
-            Ok(c) => c,
+        let (logical_cpus, rows) = match wmi_cache::with_cimv2(|wmi| {
+            // Number of logical processors — used to normalize CPU%
+            let cpu_q: Vec<HashMap<String, wmi::Variant>> = wmi
+                .raw_query("SELECT NumberOfLogicalProcessors FROM Win32_Processor")
+                .unwrap_or_default();
+            let logical_cpus: f64 = cpu_q
+                .first()
+                .and_then(|r| r.get("NumberOfLogicalProcessors"))
+                .map(|v| match v {
+                    wmi::Variant::UI4(n) => *n as f64,
+                    _ => 1.0,
+                })
+                .unwrap_or(1.0)
+                .max(1.0);
+
+            let rows: Vec<HashMap<String, wmi::Variant>> = wmi
+                .raw_query(
+                    "SELECT Name, IDProcess, PercentProcessorTime, WorkingSet \
+                     FROM Win32_PerfFormattedData_PerfProc_Process",
+                )
+                .unwrap_or_default();
+
+            Ok((logical_cpus, rows))
+        }) {
+            Ok(v) => v,
             Err(_) => return vec![],
         };
-        let wmi = match WMIConnection::new(com.into()) {
-            Ok(w) => w,
-            Err(_) => return vec![],
-        };
-
-        // Number of logical processors — used to normalize CPU%
-        let cpu_q: Vec<HashMap<String, wmi::Variant>> = wmi
-            .raw_query("SELECT NumberOfLogicalProcessors FROM Win32_Processor")
-            .unwrap_or_default();
-        let logical_cpus: f64 = cpu_q
-            .first()
-            .and_then(|r| r.get("NumberOfLogicalProcessors"))
-            .map(|v| match v {
-                wmi::Variant::UI4(n) => *n as f64,
-                _ => 1.0,
-            })
-            .unwrap_or(1.0)
-            .max(1.0);
-
-        let rows: Vec<HashMap<String, wmi::Variant>> = wmi
-            .raw_query(
-                "SELECT Name, IDProcess, PercentProcessorTime, WorkingSet \
-                 FROM Win32_PerfFormattedData_PerfProc_Process",
-            )
-            .unwrap_or_default();
 
         let mut procs: Vec<ProcessInfo> = rows
             .into_iter()

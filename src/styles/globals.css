@@ -195,6 +195,48 @@ body,
   overflow: hidden;
 }
 
+/* ── Responsive breakpoints ─────────────────────────────────────────────────── */
+
+/* Sidebar collapses below 700px */
+@media (max-width: 700px) {
+  .sidebar {
+    width: 48px;
+    min-width: 48px;
+    overflow: hidden;
+  }
+  .sidebar-item {
+    justify-content: center;
+    padding: 8px;
+  }
+  .sidebar-logo span:last-child {
+    display: none;
+  }
+  .sidebar-logo {
+    justify-content: center;
+    padding: 8px 10px 18px;
+  }
+}
+
+/* grid-2 and grid-3 collapse to 1 column below 600px */
+@media (max-width: 600px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Compact spacing for small windows */
+@media (max-width: 600px) {
+  .content-area {
+    padding: 12px;
+  }
+  .card {
+    padding: 12px;
+  }
+}
+
 /* Tray popup window — webview background must be transparent */
 .tray-window,
 .tray-window body,
@@ -1339,4 +1381,111 @@ input::placeholder {
 }
 .toast__close:hover {
   opacity: 1;
+}
+
+/* ── Loading indicators ─────────────────────────────────────────────────────── */
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border, #45475a);
+  border-top-color: var(--color-accent, #6c8cff);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  color: var(--color-text-muted, #a6adc8);
+  font-size: 13px;
+}
+
+/* ── High contrast mode support (WCAG 1.4.6) ────────────────────────────────── */
+
+@media (prefers-contrast: more) {
+  :root {
+    --color-bg: #000000;
+    --color-surface: #0a0a0a;
+    --color-surface-hover: #1a1a1a;
+    --color-text: #ffffff;
+    --color-text-muted: #e0e0e0;
+    --color-border: #ffffff;
+    --color-accent: #ffff00;
+  }
+
+  .card {
+    border: 2px solid var(--color-border);
+  }
+
+  .btn {
+    border: 2px solid currentColor;
+  }
+
+  .btn-primary {
+    background: var(--color-accent);
+    color: #000000;
+  }
+
+  input,
+  select,
+  textarea {
+    border: 2px solid var(--color-border);
+  }
+}
+
+/* Forced colors mode (Windows High Contrast) */
+@media (forced-colors: active) {
+  .card,
+  .btn,
+  input,
+  select,
+  textarea {
+    border: 1px solid CanvasText;
+  }
+
+  .btn-primary {
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  /* Ensure focus indicators are visible */
+  *:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/* ── RTL (Right-to-Left) support foundation ─────────────────────────────────── */
+
+[dir='rtl'] {
+  text-align: right;
+}
+
+[dir='rtl'] .sidebar {
+  border-right: none;
+  border-left: 1px solid var(--color-border, #45475a);
+}
+
+[dir='rtl'] .sidebar-item {
+  flex-direction: row-reverse;
+}
+
+[dir='rtl'] .card {
+  text-align: right;
+}
+
+/* Use logical properties for spacing where possible */
+[dir='rtl'] .content-area {
+  margin-left: 0;
+  margin-right: var(--sidebar-width, 240px);
 }

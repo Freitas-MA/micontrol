@@ -302,7 +302,9 @@ export default function PerformanceModeSelector({
               gap: 6,
             }}
           >
-            <span style={{ flexShrink: 0 }}>ℹ️</span>
+            <span style={{ flexShrink: 0 }} aria-hidden="true">
+              ℹ️
+            </span>
             <span>{t('performance.techDetails.overlayNote')}</span>
           </div>
 

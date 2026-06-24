@@ -95,7 +95,9 @@ pub async fn run_elevated(cmd: &'static str, args: Value) -> Result<Value, Strin
     tokio::fs::rename(&tmp_path, &cmd_path)
         .await
         .map_err(|e| format!("Cannot rename elevated command file: {e}"))?;
-    auth::restrict_file_acl(&cmd_path);
+    if let Err(e) = auth::restrict_file_acl(&cmd_path) {
+        log::warn!("Failed to restrict ACL on command file: {e}");
+    }
 
     // Launch the scheduled task (returns immediately; task runs asynchronously).
     // Stdout/stderr are explicitly silenced — schtasks prints

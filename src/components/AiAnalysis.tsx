@@ -848,7 +848,9 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
               color: 'var(--text-dim)',
             }}
           >
-            <span style={{ fontSize: 32 }}>📊</span>
+            <span style={{ fontSize: 32 }} aria-hidden="true">
+              📊
+            </span>
             <span style={{ fontSize: 13 }}>{t('aiAnalysis.charts.waitingForData')}</span>
             <span style={{ fontSize: 11 }}>{t('aiAnalysis.charts.enableHint')}</span>
           </div>
@@ -971,7 +973,9 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
               color: 'var(--text-dim)',
             }}
           >
-            <span style={{ fontSize: 28 }}>🤖</span>
+            <span style={{ fontSize: 28 }} aria-hidden="true">
+              🤖
+            </span>
             <span style={{ fontSize: 12 }}>{t('aiAnalysis.analysis.noResultYet')}</span>
           </div>
         )}

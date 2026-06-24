@@ -2,6 +2,15 @@ import { useState } from 'react';
 import { t, useLanguage } from '../hooks/useI18n';
 import type { AppSettings } from '../hooks/useSettings';
 import { DEFAULT_SETTINGS } from '../hooks/useSettings';
+import { invoke } from '@tauri-apps/api/core';
+
+interface DeleteDataReport {
+  logs_deleted: boolean;
+  credentials_deleted: boolean;
+  schedule_deleted: boolean;
+  consent_deleted: boolean;
+  errors: string[];
+}
 
 const PRESET_MODELS = [
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini (fast, cheap)' },
@@ -69,6 +78,8 @@ export default function SettingsPage({
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [testMsg, setTestMsg] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<DeleteDataReport | null>(null);
 
   function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -112,6 +123,27 @@ export default function SettingsPage({
     setCustomModel('');
     setDirty(true);
   }
+
+  const handleDeleteAllData = async () => {
+    if (!confirm(t('settings.confirmDelete'))) return;
+    setIsDeleting(true);
+    try {
+      const result = await invoke<DeleteDataReport>('delete_all_user_data');
+      setDeleteResult(result);
+      localStorage.clear();
+    } catch (e) {
+      console.error('Failed to delete data:', e);
+      setDeleteResult({
+        logs_deleted: false,
+        credentials_deleted: false,
+        schedule_deleted: false,
+        consent_deleted: false,
+        errors: [String(e)],
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <>
@@ -223,6 +255,7 @@ export default function SettingsPage({
         {/* Test result */}
         {testMsg && (
           <div
+            role={testStatus === 'error' ? 'alert' : 'status'}
             style={{
               marginTop: 12,
               padding: '8px 12px',
@@ -312,6 +345,50 @@ export default function SettingsPage({
               ? t('settings.consentDenied')
               : t('settings.consentNotSet')}
         </p>
+      </div>
+
+      {/* Data Deletion — GDPR Art.17 */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title">{t('settings.dataDeletion')}</div>
+        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
+          {t('settings.dataDeletionDesc')}
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            className="btn-ghost"
+            onClick={() => void handleDeleteAllData()}
+            disabled={isDeleting}
+            style={{
+              fontSize: 12,
+              color: 'var(--color-danger, #f87171)',
+              borderColor: 'var(--color-danger, #f87171)',
+            }}
+          >
+            {isDeleting ? t('settings.deleting') : `🗑 ${t('settings.deleteAllData')}`}
+          </button>
+        </div>
+        {deleteResult && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 12,
+              padding: '8px 12px',
+              borderRadius: 6,
+              fontSize: 12,
+              background:
+                deleteResult.errors.length > 0 ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)',
+              color:
+                deleteResult.errors.length > 0
+                  ? 'var(--color-danger, #f87171)'
+                  : 'var(--color-success, #4ade80)',
+              border: `1px solid ${deleteResult.errors.length > 0 ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`,
+            }}
+          >
+            {deleteResult.errors.length > 0
+              ? `✗ ${t('settings.deleteError')}`
+              : `✓ ${t('settings.deleteSuccess')}`}
+          </div>
+        )}
       </div>
     </>
   );

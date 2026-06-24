@@ -211,7 +211,9 @@ export default function HardwareDiscovery({ profile, loading, onRescan, onInstal
                   lineHeight: 1.5,
                 }}
               >
-                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>ℹ </span>
+                <span style={{ color: 'var(--accent)', fontWeight: 600 }} aria-hidden="true">
+                  ℹ{' '}
+                </span>
                 {t('discovery.vhfNotRequired')}
               </div>
             )}

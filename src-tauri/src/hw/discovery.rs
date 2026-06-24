@@ -947,8 +947,9 @@ mod tests {
             vhf_device_path: Some(r"\\?\some\path".into()),
             ..Default::default()
         };
-        let json = serde_json::to_string(&p).unwrap();
-        let p2: HardwareProfile = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&p).expect("serialize HardwareProfile in test");
+        let p2: HardwareProfile =
+            serde_json::from_str(&json).expect("deserialize HardwareProfile in test");
         assert_eq!(p2.device_model, Some("Test Device".into()));
         assert_eq!(p2.vhf_device_path, Some(r"\\?\some\path".into()));
     }
