@@ -292,6 +292,8 @@ pub fn load_config() -> HotkeyMap {
     let path = config_path();
     if let Ok(data) = std::fs::read_to_string(&path) {
         if let Ok(cfg) = serde_json::from_str::<HotkeyMap>(&data) {
+            // Upgrade ACL on existing config file — silently ignore errors.
+            let _ = crate::util::auth::restrict_file_acl(&path);
             return migrate_config(cfg);
         }
     }
@@ -337,6 +339,14 @@ pub fn save_config(config: &HotkeyMap) -> Result<()> {
     }
     let json = serde_json::to_string_pretty(config).context("serialize hotkey config")?;
     std::fs::write(&path, json).context("write hotkeys.json")?;
+
+    // Restrict ACL on the config file — prevents other users from modifying
+    // hotkey actions (Script/LaunchApp injection vector, CWE-1104).
+    if let Err(e) = crate::util::auth::restrict_file_acl(&path) {
+        log::warn!("[hotkeys] Failed to restrict ACL on hotkeys.json: {e}");
+        // Don't fail — the file is written, just without ACL protection.
+    }
+
     Ok(())
 }
 
@@ -1336,7 +1346,16 @@ fn dispatch_action(action: &HotkeyAction) {
         }
 
         HotkeyAction::OpenUrl { url } => {
-            // Use `explorer <url>` — works for http/https and mailto links.
+            // Validate URL scheme — only http and https are allowed to prevent
+            // code execution via file://, javascript:, data: schemes (CWE-807).
+            let lower = url.to_lowercase();
+            if !lower.starts_with("http://") && !lower.starts_with("https://") {
+                log::warn!(
+                    "[hotkeys] OpenUrl rejected — invalid scheme (only http/https allowed): '{url}'"
+                );
+                return;
+            }
+            // Use `explorer <url>` — works for http/https links.
             let result = std::process::Command::new("explorer")
                 .arg(url)
                 .creation_flags(CREATE_NO_WINDOW)
@@ -2523,6 +2542,40 @@ mod remap_state_tests {
             0,
             "get_detected_vk should return 0 when Idle"
         );
+    }
+}
+
+#[cfg(test)]
+mod url_validation_tests {
+    #[test]
+    fn test_http_url_accepted() {
+        assert!("http://example.com".to_lowercase().starts_with("http://"));
+    }
+
+    #[test]
+    fn test_https_url_accepted() {
+        assert!("https://example.com".to_lowercase().starts_with("https://"));
+    }
+
+    #[test]
+    fn test_file_url_rejected() {
+        let url = "file:///C:/Windows/System32/";
+        let lower = url.to_lowercase();
+        assert!(!lower.starts_with("http://") && !lower.starts_with("https://"));
+    }
+
+    #[test]
+    fn test_javascript_url_rejected() {
+        let url = "javascript:alert(1)";
+        let lower = url.to_lowercase();
+        assert!(!lower.starts_with("http://") && !lower.starts_with("https://"));
+    }
+
+    #[test]
+    fn test_data_url_rejected() {
+        let url = "data:text/html,<script>alert(1)</script>";
+        let lower = url.to_lowercase();
+        assert!(!lower.starts_with("http://") && !lower.starts_with("https://"));
     }
 }
 

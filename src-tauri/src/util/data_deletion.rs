@@ -46,7 +46,7 @@ pub fn delete_all_user_data(app: &tauri::AppHandle) -> Result<DeleteDataReport, 
         }
     }
 
-    // 4. Delete consent records
+    // 4. Delete consent records (consent.json)
     let consent_path = app_data.join("consent.json");
     if consent_path.exists() {
         match std::fs::remove_file(&consent_path) {
@@ -54,6 +54,20 @@ pub fn delete_all_user_data(app: &tauri::AppHandle) -> Result<DeleteDataReport, 
             Err(e) => report.errors.push(format!("Failed to delete consent: {e}")),
         }
     }
+
+    // 5. Delete telemetry consent keyring entry
+    match keyring::Entry::new("micontrol", "telemetry_consent").and_then(|e| e.delete_credential())
+    {
+        Ok(()) => report.credentials_deleted = true,
+        Err(keyring::Error::NoEntry) => {}
+        Err(e) => report
+            .errors
+            .push(format!("Failed to delete telemetry consent key: {e}")),
+    }
+
+    // 6. Purge consent audit log
+    crate::util::consent_audit::purge_audit_log();
+    report.audit_log_deleted = true;
 
     Ok(report)
 }
@@ -95,5 +109,6 @@ pub struct DeleteDataReport {
     pub credentials_deleted: bool,
     pub schedule_deleted: bool,
     pub consent_deleted: bool,
+    pub audit_log_deleted: bool,
     pub errors: Vec<String>,
 }

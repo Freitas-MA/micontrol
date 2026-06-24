@@ -16,6 +16,9 @@ const STORAGE_KEY_V1 = 'micontrol_settings_v1';
 const CREDENTIAL_KEY = 'openai_api_key';
 const TELEMETRY_CONSENT_KEY = 'telemetry_consent';
 
+/** Privacy policy version — must match POLICY_VERSION in src-tauri/src/util/consent_audit.rs */
+const POLICY_VERSION = 2;
+
 export interface AppSettings {
   /** OpenAI (or compatible) API key */
   openai_api_key: string;
@@ -373,7 +376,7 @@ Be concise. Use short paragraphs with emoji section headers. Max 300 words.`;
       const payload = JSON.stringify({
         value,
         date: new Date().toISOString(),
-        policyVersion: 1,
+        policyVersion: POLICY_VERSION,
       });
       await invoke('set_secret', { key: TELEMETRY_CONSENT_KEY, value: payload });
     } catch (err) {

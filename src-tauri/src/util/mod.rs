@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod consent_audit;
 pub mod data_deletion;
 pub mod panic;
 pub mod registry;

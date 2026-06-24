@@ -215,7 +215,7 @@ pub fn verify_payload(payload: &mut serde_json::Value, key: &[u8]) -> Result<(),
 /// Uses `SetNamedSecurityInfoW` Win32 API instead of shelling out to `icacls.exe`.
 /// Returns an error if the restriction fails — callers MUST NOT use the key if this fails.
 #[cfg(windows)]
-pub(crate) fn restrict_file_acl(path: &std::path::Path) -> Result<(), String> {
+pub fn restrict_file_acl(path: &std::path::Path) -> Result<(), String> {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
     use windows::Win32::Security::Authorization::{
@@ -314,7 +314,7 @@ pub(crate) fn restrict_file_acl(path: &std::path::Path) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-pub(crate) fn restrict_file_acl(_path: &std::path::Path) -> Result<(), String> {
+pub fn restrict_file_acl(_path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 

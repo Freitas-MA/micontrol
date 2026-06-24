@@ -2111,6 +2111,7 @@ dependencies = [
  "anyhow",
  "fern",
  "fs2",
+ "hex",
  "hmac",
  "humantime",
  "keyring",

@@ -36,7 +36,19 @@ pub fn log_consent_event(event: &str, policy_version: u32) {
     }
 
     let ts = unix_timestamp();
-    let entry = format!("{ts}\t{event}\tpolicy_version={policy_version}\n");
+    let entry = format!("{ts}\t{event}\tpolicy_version={policy_version}");
+
+    // Compute HMAC for integrity protection
+    let hmac_tag = match crate::util::auth::get_or_create_key() {
+        Ok(key) => crate::util::auth::compute_hmac(&key, entry.as_bytes()),
+        Err(e) => {
+            log::error!("Failed to get HMAC key for audit log: {e}");
+            // Write without HMAC if key is unavailable — better to log than to lose the entry
+            String::new()
+        }
+    };
+
+    let signed_entry = format!("{entry}\thmac={hmac_tag}\n");
 
     // Append to the audit log
     match std::fs::OpenOptions::new()
@@ -45,7 +57,7 @@ pub fn log_consent_event(event: &str, policy_version: u32) {
         .open(&path)
     {
         Ok(mut file) => {
-            if let Err(e) = file.write_all(entry.as_bytes()) {
+            if let Err(e) = file.write_all(signed_entry.as_bytes()) {
                 log::error!("Failed to write consent audit log: {e}");
             }
         }
@@ -55,13 +67,11 @@ pub fn log_consent_event(event: &str, policy_version: u32) {
     }
 }
 
-#[allow(dead_code)]
 /// Log that consent was granted.
 pub fn log_consent_granted(policy_version: u32) {
     log_consent_event("CONSENT_GRANTED", policy_version);
 }
 
-#[allow(dead_code)]
 /// Log that consent was revoked.
 pub fn log_consent_revoked(policy_version: u32) {
     log_consent_event("CONSENT_REVOKED", policy_version);
@@ -72,5 +82,117 @@ pub fn read_audit_log() -> Vec<String> {
     match std::fs::read_to_string(audit_log_path()) {
         Ok(content) => content.lines().map(|l| l.to_string()).collect(),
         Err(_) => Vec::new(),
+    }
+}
+
+/// Delete the audit log file (used by data deletion — GDPR Art.17).
+pub fn purge_audit_log() {
+    let path = audit_log_path();
+    if path.exists() {
+        if let Err(e) = std::fs::remove_file(&path) {
+            log::warn!("Failed to purge consent audit log: {e}");
+        }
+    }
+}
+
+/// Verify the integrity of all audit log entries.
+///
+/// Returns `Ok(())` if all entries are valid, or `Err(message)` describing
+/// the first tampered entry.
+pub fn verify_audit_log() -> Result<(), String> {
+    let path = audit_log_path();
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let key = crate::util::auth::get_or_create_key()?;
+
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Cannot read audit log: {e}"))?;
+
+    for (line_num, line) in content.lines().enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+
+        // Parse: {ts}\t{event}\tpolicy_version={ver}\thmac={hmac}
+        let parts: Vec<&str> = line.splitn(2, "\thmac=").collect();
+        if parts.len() != 2 {
+            return Err(format!("Line {}: missing HMAC tag", line_num + 1));
+        }
+
+        let entry = parts[0];
+        let stored_hmac = parts[1];
+
+        if stored_hmac.is_empty() {
+            // Entry was written when HMAC key was unavailable — skip verification
+            continue;
+        }
+
+        if !crate::util::auth::verify_hmac(&key, entry.as_bytes(), stored_hmac) {
+            return Err(format!(
+                "Line {}: HMAC verification failed — entry may be tampered",
+                line_num + 1
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_log_consent_event_writes_hmac() {
+        // Use a temp directory for testing
+        let orig = std::env::var("LOCALAPPDATA").ok();
+        let tmp = std::env::temp_dir().join("micontrol_test_audit");
+        std::env::set_var("LOCALAPPDATA", &tmp);
+
+        log_consent_event("TEST_EVENT", 2);
+
+        let log_path = tmp.join("MiControl").join("consent_audit.log");
+        assert!(log_path.exists(), "Audit log file should exist");
+
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(
+            content.contains("TEST_EVENT"),
+            "Log should contain the event"
+        );
+        assert!(content.contains("hmac="), "Log should contain HMAC tag");
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&tmp);
+        if let Some(orig_val) = orig {
+            std::env::set_var("LOCALAPPDATA", orig_val);
+        }
+    }
+
+    #[test]
+    fn test_verify_audit_log_detects_tampering() {
+        let orig = std::env::var("LOCALAPPDATA").ok();
+        let tmp = std::env::temp_dir().join("micontrol_test_audit_verify");
+        std::env::set_var("LOCALAPPDATA", &tmp);
+
+        // Write a valid entry
+        log_consent_event("TEST_EVENT", 2);
+
+        // Tamper with the log file
+        let log_path = tmp.join("MiControl").join("consent_audit.log");
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        let tampered = content.replace("TEST_EVENT", "HACKED_EVENT");
+        std::fs::write(&log_path, tampered).unwrap();
+
+        // Verification should fail
+        let result = verify_audit_log();
+        assert!(result.is_err(), "Tampered log should fail verification");
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&tmp);
+        if let Some(orig_val) = orig {
+            std::env::set_var("LOCALAPPDATA", orig_val);
+        }
     }
 }

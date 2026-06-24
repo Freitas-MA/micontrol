@@ -7,6 +7,7 @@ use crate::hw::display::{
     get_ai_brightness_config as hw_get_ai_cfg, get_available_refresh_rates as hw_get_refresh_rates,
     get_display_info as hw_get_display, set_hdr as hw_set_hdr, AiBrightnessConfig, DisplayInfo,
 };
+use crate::hw::errors::ErrorResponse;
 use crate::hw::fan::{get_fan_info as hw_get_fan, FanInfo, FanMode};
 use crate::hw::performance::get_performance_mode as hw_get_perf;
 use crate::hw::processes::{get_process_list as hw_get_processes, ProcessInfo};
@@ -26,13 +27,13 @@ use crate::hw::update::{
 use crate::state::PerformanceMode;
 
 #[tauri::command]
-pub async fn get_battery_info() -> Result<BatteryInfo, String> {
+pub async fn get_battery_info() -> Result<BatteryInfo, ErrorResponse> {
     let started = std::time::Instant::now();
     log::debug!(target: "cmd::system", "get_battery_info: start");
     let result = tokio::task::spawn_blocking(hw_get_battery)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string());
+        .map_err(|e| ErrorResponse::from(e.to_string()));
     match &result {
         Ok(info) => log::debug!(
             target: "cmd::system",
@@ -48,22 +49,22 @@ pub async fn get_battery_info() -> Result<BatteryInfo, String> {
             target: "cmd::system",
             "get_battery_info: failed after {} ms: {}",
             started.elapsed().as_millis(),
-            error
+            error.message
         ),
     }
     result
 }
 
 #[tauri::command]
-pub async fn get_display_info() -> Result<DisplayInfo, String> {
+pub async fn get_display_info() -> Result<DisplayInfo, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_display)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn set_brightness(level: u8) -> Result<(), String> {
+pub async fn set_brightness(level: u8) -> Result<(), ErrorResponse> {
     // If auto-brightness is active, record the delta so the adaptive loop
     // uses the user's chosen value as the new shifted baseline rather than
     // reverting to the pure lux-based calculation.
@@ -74,20 +75,21 @@ pub async fn set_brightness(level: u8) -> Result<(), String> {
     elev_bridge::run_elevated("set_brightness", serde_json::json!({ "level": level }))
         .await
         .map(|_| ())
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
-pub async fn set_hdr(enabled: bool) -> Result<(), String> {
+pub async fn set_hdr(enabled: bool) -> Result<(), ErrorResponse> {
     // DisplayConfigSetDeviceInfo operates on the current user's interactive
     // session and does NOT require administrator privileges — call directly.
     tokio::task::spawn_blocking(move || hw_set_hdr(enabled))
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn set_ai_brightness(enabled: bool) -> Result<(), String> {
+pub async fn set_ai_brightness(enabled: bool) -> Result<(), ErrorResponse> {
     // Always reset the user override when toggling auto-brightness so the
     // loop starts fresh with no inherited delta.
     crate::hw::display::clear_user_brightness_override();
@@ -97,15 +99,16 @@ pub async fn set_ai_brightness(enabled: bool) -> Result<(), String> {
     )
     .await
     .map(|_| ())
+    .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
-pub async fn get_ai_brightness_config() -> Result<AiBrightnessConfig, String> {
+pub async fn get_ai_brightness_config() -> Result<AiBrightnessConfig, ErrorResponse> {
     Ok(hw_get_ai_cfg())
 }
 
 #[tauri::command]
-pub async fn set_ai_brightness_config(config: AiBrightnessConfig) -> Result<(), String> {
+pub async fn set_ai_brightness_config(config: AiBrightnessConfig) -> Result<(), ErrorResponse> {
     // Config change invalidates the old offset (different curve parameters).
     crate::hw::display::clear_user_brightness_override();
     elev_bridge::run_elevated(
@@ -114,34 +117,36 @@ pub async fn set_ai_brightness_config(config: AiBrightnessConfig) -> Result<(), 
     )
     .await
     .map(|_| ())
+    .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
-pub async fn get_fan_info() -> Result<FanInfo, String> {
+pub async fn get_fan_info() -> Result<FanInfo, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_fan)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn set_fan_mode(mode: FanMode, speed_percent: u8) -> Result<(), String> {
+pub async fn set_fan_mode(mode: FanMode, speed_percent: u8) -> Result<(), ErrorResponse> {
     elev_bridge::run_elevated(
         "set_fan_mode",
         serde_json::json!({ "mode": mode, "speed_percent": speed_percent }),
     )
     .await
     .map(|_| ())
+    .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
-pub async fn get_touchpad_info() -> Result<TouchpadInfo, String> {
+pub async fn get_touchpad_info() -> Result<TouchpadInfo, ErrorResponse> {
     let started = std::time::Instant::now();
     log::debug!(target: "cmd::system", "get_touchpad_info: start");
     let result = tokio::task::spawn_blocking(hw_get_touchpad)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string());
+        .map_err(|e| ErrorResponse::from(e.to_string()));
     match &result {
         Ok(info) => log::debug!(
             target: "cmd::system",
@@ -157,77 +162,83 @@ pub async fn get_touchpad_info() -> Result<TouchpadInfo, String> {
             target: "cmd::system",
             "get_touchpad_info: failed after {} ms: {}",
             started.elapsed().as_millis(),
-            error
+            error.message
         ),
     }
     result
 }
 
 #[tauri::command]
-pub async fn set_touchpad_sensitivity(sensitivity: TouchpadSensitivity) -> Result<(), String> {
+pub async fn set_touchpad_sensitivity(
+    sensitivity: TouchpadSensitivity,
+) -> Result<(), ErrorResponse> {
     tokio::task::spawn_blocking(move || {
-        hw_set_touchpad_sensitivity(sensitivity).map_err(|e| e.to_string())
+        hw_set_touchpad_sensitivity(sensitivity).map_err(ErrorResponse::from)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("blocking task panicked: {e}"))?
 }
 
 #[tauri::command]
-pub async fn set_touchpad_haptics(enabled: bool) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || hw_set_touchpad_haptics(enabled).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn set_touchpad_haptics(enabled: bool) -> Result<(), ErrorResponse> {
+    tokio::task::spawn_blocking(move || {
+        hw_set_touchpad_haptics(enabled).map_err(ErrorResponse::from)
+    })
+    .await
+    .map_err(|e| format!("blocking task panicked: {e}"))?
 }
 
 #[tauri::command]
 pub async fn set_touchpad_haptics_intensity(
     intensity: crate::hw::touchpad::HapticsIntensity,
-) -> Result<(), String> {
+) -> Result<(), ErrorResponse> {
     tokio::task::spawn_blocking(move || {
-        hw_set_touchpad_haptics_intensity(intensity).map_err(|e| e.to_string())
+        hw_set_touchpad_haptics_intensity(intensity).map_err(ErrorResponse::from)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("blocking task panicked: {e}"))?
 }
 
 #[tauri::command]
-pub async fn set_touchpad_gesture_screenshot(enabled: bool) -> Result<(), String> {
+pub async fn set_touchpad_gesture_screenshot(enabled: bool) -> Result<(), ErrorResponse> {
     tokio::task::spawn_blocking(move || {
-        hw_set_touchpad_gesture_screenshot(enabled).map_err(|e| e.to_string())
+        hw_set_touchpad_gesture_screenshot(enabled).map_err(ErrorResponse::from)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("blocking task panicked: {e}"))?
 }
 
 #[tauri::command]
-pub async fn set_touchpad_repress(enabled: bool) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || hw_set_touchpad_repress(enabled).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn set_touchpad_edge_slide(enabled: bool) -> Result<(), String> {
+pub async fn set_touchpad_repress(enabled: bool) -> Result<(), ErrorResponse> {
     tokio::task::spawn_blocking(move || {
-        hw_set_touchpad_edge_slide(enabled).map_err(|e| e.to_string())
+        hw_set_touchpad_repress(enabled).map_err(ErrorResponse::from)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("blocking task panicked: {e}"))?
 }
 
 #[tauri::command]
-pub async fn get_system_info() -> Result<SystemInfo, String> {
+pub async fn set_touchpad_edge_slide(enabled: bool) -> Result<(), ErrorResponse> {
+    tokio::task::spawn_blocking(move || {
+        hw_set_touchpad_edge_slide(enabled).map_err(ErrorResponse::from)
+    })
+    .await
+    .map_err(|e| format!("blocking task panicked: {e}"))?
+}
+
+#[tauri::command]
+pub async fn get_system_info() -> Result<SystemInfo, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_sysinfo)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn get_process_list() -> Result<Vec<ProcessInfo>, String> {
+pub async fn get_process_list() -> Result<Vec<ProcessInfo>, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_processes)
         .await
-        .map_err(|e| format!("blocking task panicked: {e}"))
+        .map_err(|e| ErrorResponse::from(format!("blocking task panicked: {e}")))
 }
 
 #[tauri::command]
@@ -238,14 +249,15 @@ pub async fn get_available_refresh_rates() -> Vec<u32> {
 }
 
 #[tauri::command]
-pub async fn set_refresh_rate(hz: u32) -> Result<(), String> {
+pub async fn set_refresh_rate(hz: u32) -> Result<(), ErrorResponse> {
     elev_bridge::run_elevated("set_refresh_rate", serde_json::json!({ "hz": hz }))
         .await
         .map(|_| ())
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
-pub async fn set_adaptive_refresh_rate(enabled: bool) -> Result<(), String> {
+pub async fn set_adaptive_refresh_rate(enabled: bool) -> Result<(), ErrorResponse> {
     // Writes HKLM registry key — requires elevation.
     // The UI should inform the user that a driver restart / reboot is needed.
     elev_bridge::run_elevated(
@@ -254,38 +266,39 @@ pub async fn set_adaptive_refresh_rate(enabled: bool) -> Result<(), String> {
     )
     .await
     .map(|_| ())
+    .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
-pub async fn get_autostart() -> Result<bool, String> {
+pub async fn get_autostart() -> Result<bool, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_autostart)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn set_autostart(enabled: bool) -> Result<(), String> {
+pub async fn set_autostart(enabled: bool) -> Result<(), ErrorResponse> {
     tokio::task::spawn_blocking(move || hw_set_autostart(enabled))
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn get_update_status() -> Result<UpdateStatus, String> {
+pub async fn get_update_status() -> Result<UpdateStatus, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_update_status)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn trigger_driver_scan() -> Result<String, String> {
+pub async fn trigger_driver_scan() -> Result<String, ErrorResponse> {
     tokio::task::spawn_blocking(hw_trigger_scan)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| e.to_string())
+        .map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 // ── Hardware Discovery (Phase 10) ────────────────────────────────────────────
@@ -296,15 +309,16 @@ pub async fn get_hardware_profile() -> Option<HardwareProfile> {
 }
 
 #[tauri::command]
-pub async fn run_hardware_discovery() -> Result<HardwareProfile, String> {
+pub async fn run_hardware_discovery() -> Result<HardwareProfile, ErrorResponse> {
     let raw = elev_bridge::run_elevated("run_hardware_discovery", serde_json::Value::Null).await?;
-    serde_json::from_value(raw).map_err(|e| format!("Unexpected profile result: {e}"))
+    serde_json::from_value(raw)
+        .map_err(|e| ErrorResponse::from(anyhow::anyhow!("Unexpected profile result: {e}")))
 }
 
 /// Install a specific driver by name.  The bundled .inf must exist in resources.
 /// Runs through the elevated scheduled task (no UAC prompt during install).
 #[tauri::command]
-pub async fn install_driver(driver_name: String) -> Result<String, String> {
+pub async fn install_driver(driver_name: String) -> Result<String, ErrorResponse> {
     let raw = elev_bridge::run_elevated(
         "install_driver",
         serde_json::json!({ "driver_name": driver_name }),
@@ -318,8 +332,8 @@ pub async fn install_driver(driver_name: String) -> Result<String, String> {
 /// Use this to identify which byte offset corresponds to charger wattage:
 /// plug/unplug the charger and call this command to see which bytes change.
 #[tauri::command]
-pub async fn debug_ecram_dump() -> Result<String, String> {
-    crate::hw::ecram::debug_ecram_hex().map_err(|e| e.to_string())
+pub async fn debug_ecram_dump() -> Result<String, ErrorResponse> {
+    crate::hw::ecram::debug_ecram_hex().map_err(|e| ErrorResponse::from(e.to_string()))
 }
 
 // ── Batched hardware state (S4-002) ──────────────────────────────────────────
@@ -348,7 +362,7 @@ pub struct HardwareState {
 /// Each subsystem query is wrapped in `ok()` so a transient WMI/pipe failure
 /// on one sensor doesn't prevent the rest from returning.
 #[tauri::command]
-pub async fn get_hardware_state_batch() -> Result<HardwareState, String> {
+pub async fn get_hardware_state_batch() -> Result<HardwareState, ErrorResponse> {
     tokio::task::spawn_blocking(|| {
         // Wave 1: battery, display, fan, touchpad in parallel
         let ((battery, display), (fan, touchpad)) = rayon::join(

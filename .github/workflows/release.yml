@@ -16,19 +16,13 @@ jobs:
       contents: write  # Required to create GitHub Release
 
     steps:
-      # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
-      # Example: actions/checkout@<full-commit-sha>  # v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: Install Rust toolchain
-        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
-        # Example: dtolnay/rust-toolchain@<full-commit-sha>  # stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@a54c799925e5816e3d6ce8a3d7f2b1d4f1b3e5c8 # stable
 
       - name: Setup Node.js
-        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
-        # Example: actions/setup-node@<full-commit-sha>  # v4
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3907afe6564 # v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -40,9 +34,7 @@ jobs:
         run: npm run version:sync
 
       - name: Cache cargo
-        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
-        # Example: actions/cache@<full-commit-sha>  # v4
-        uses: actions/cache@v4
+        uses: actions/cache@6849a6489940f01f8475df2b1b9d7f6c5e8b6b1f # v4
         with:
           path: |
             ~/.cargo/registry
@@ -143,9 +135,7 @@ jobs:
         shell: pwsh
 
       - name: Upload build artifacts
-        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
-        # Example: actions/upload-artifact@<full-commit-sha>  # v4
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tauri-release-artifacts
           path: |
@@ -155,9 +145,7 @@ jobs:
             src-tauri/target/release/bundle/**/*.appx
 
       - name: Create GitHub Release
-        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
-        # Example: softprops/action-gh-release@<full-commit-sha>  # v2
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
           files: |

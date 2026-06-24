@@ -350,6 +350,79 @@ fn default_true() -> bool {
     true
 }
 
+// ── WiFi password encryption ──────────────────────────────────────────────────
+//
+// WiFi passwords are encrypted before being sent over the local named pipe
+// to prevent plaintext sniffing (CWE-312). Uses XOR with a key derived from
+// the shared HMAC key — sufficient for local pipe protection.
+
+/// Derive a 32-byte stream key from the HMAC key and a nonce.
+fn derive_stream_key(key: &[u8], nonce: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(key);
+    hasher.update(nonce);
+    hasher.finalize().into()
+}
+
+/// XOR-encrypt `data` using the given `stream_key`.
+fn xor_crypt(data: &[u8], stream_key: &[u8; 32]) -> Vec<u8> {
+    data.iter()
+        .enumerate()
+        .map(|(i, &b)| b ^ stream_key[i % stream_key.len()])
+        .collect()
+}
+
+/// Encrypt a WiFi password using a raw key.
+///
+/// Returns `{nonce_hex}:{encrypted_hex}`.
+fn encrypt_with_key(password: &str, key: &[u8], nonce_hex: &str) -> Result<String, String> {
+    let nonce_bytes = hex::decode(nonce_hex).map_err(|e| format!("Invalid nonce: {e}"))?;
+    let stream_key = derive_stream_key(key, &nonce_bytes);
+    let encrypted = xor_crypt(password.as_bytes(), &stream_key);
+    let encrypted_hex: String = encrypted.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!("{nonce_hex}:{encrypted_hex}"))
+}
+
+/// Decrypt a WiFi password using a raw key.
+///
+/// Input format: `{nonce_hex}:{encrypted_hex}`
+#[allow(dead_code)]
+fn decrypt_with_key(encrypted: &str, key: &[u8]) -> Result<String, String> {
+    let parts: Vec<&str> = encrypted.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return Err("Invalid encrypted password format".to_string());
+    }
+    let nonce_hex = parts[0];
+    let encrypted_hex = parts[1];
+
+    let nonce_bytes = hex::decode(nonce_hex).map_err(|e| format!("Invalid nonce: {e}"))?;
+    let encrypted_bytes =
+        hex::decode(encrypted_hex).map_err(|e| format!("Invalid ciphertext: {e}"))?;
+    let stream_key = derive_stream_key(key, &nonce_bytes);
+    let decrypted = xor_crypt(&encrypted_bytes, &stream_key);
+
+    String::from_utf8(decrypted).map_err(|e| format!("Decrypted password is not valid UTF-8: {e}"))
+}
+
+/// Encrypt a WiFi password using the shared HMAC key.
+///
+/// Returns a hex-encoded string: `{nonce_hex}:{encrypted_hex}`.
+fn encrypt_wifi_password(password: &str) -> Result<String, String> {
+    let key = crate::util::auth::get_or_create_key()?;
+    let nonce_hex = crate::util::auth::generate_nonce();
+    encrypt_with_key(password, &key, &nonce_hex)
+}
+
+/// Decrypt a WiFi password using the shared HMAC key.
+///
+/// Input format: `{nonce_hex}:{encrypted_hex}`
+#[allow(dead_code)]
+fn decrypt_wifi_password(encrypted: &str) -> Result<String, String> {
+    let key = crate::util::auth::get_or_create_key()?;
+    decrypt_with_key(encrypted, &key)
+}
+
 // ── Pipe communication ───────────────────────────────────────────────────────
 
 /// Resolve the pipe path: use discovered path if available, otherwise default.
@@ -762,7 +835,21 @@ pub fn report_shutting_down() -> Result<()> {
 // ── WiFi management ──────────────────────────────────────────────────────────
 pub fn write_wifi_item(item: &WiFiItem) -> Result<()> {
     log::info!("IoT IPC: writing WiFi item for SSID '{}'", item.ssid);
-    send_json_cmd_no_resp(DST_IOT_DRIVER, msg_type::WRITE_WIFI_ITEM, item)
+
+    // Encrypt the password before sending over the pipe to prevent
+    // plaintext sniffing (CWE-312).
+    let encrypted_item = if let Some(ref password) = item.password {
+        let encrypted_password = encrypt_wifi_password(password)
+            .map_err(|e| anyhow::anyhow!("Failed to encrypt WiFi password: {e}"))?;
+        WiFiItem {
+            password: Some(encrypted_password),
+            ..item.clone()
+        }
+    } else {
+        item.clone()
+    };
+
+    send_json_cmd_no_resp(DST_IOT_DRIVER, msg_type::WRITE_WIFI_ITEM, &encrypted_item)
 }
 
 /// Delete a WiFi network from the IoT device's provisioning list by SSID.
@@ -1033,5 +1120,56 @@ mod tests {
         let mut buf: &mut [u8] = &mut [];
         let result = read_exact_timeout(&mut file, &mut buf, std::time::Duration::from_secs(1));
         assert!(result.is_ok(), "zero-length read should succeed");
+    }
+
+    // ── WiFi password encryption ──────────────────────────────────────────
+
+    const TEST_KEY: &[u8] = b"0123456789abcdef0123456789abcdef"; // 32 bytes
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        let password = "MySecretWiFi123!";
+        let nonce = crate::util::auth::generate_nonce();
+        let encrypted =
+            encrypt_with_key(password, TEST_KEY, &nonce).expect("Encryption should succeed");
+        assert!(
+            encrypted.contains(':'),
+            "Encrypted password should contain nonce separator"
+        );
+        let decrypted = decrypt_with_key(&encrypted, TEST_KEY).expect("Decryption should succeed");
+        assert_eq!(
+            decrypted, password,
+            "Decrypted password should match original"
+        );
+    }
+
+    #[test]
+    fn test_encrypt_produces_different_ciphertext() {
+        let password = "SamePassword";
+        let nonce1 = "00000000000000000000000000000001";
+        let nonce2 = "00000000000000000000000000000002";
+        let enc1 =
+            encrypt_with_key(password, TEST_KEY, nonce1).expect("Encryption 1 should succeed");
+        let enc2 =
+            encrypt_with_key(password, TEST_KEY, nonce2).expect("Encryption 2 should succeed");
+        assert_ne!(
+            enc1, enc2,
+            "Different nonces should produce different ciphertext"
+        );
+    }
+
+    #[test]
+    fn test_decrypt_invalid_format() {
+        let result = decrypt_with_key("invalid_no_colon", TEST_KEY);
+        assert!(result.is_err(), "Invalid format should return error");
+    }
+
+    #[test]
+    fn test_xor_crypt_roundtrip() {
+        let data = b"Hello WiFi!";
+        let key = [0xABu8; 32];
+        let encrypted = xor_crypt(data, &key);
+        let decrypted = xor_crypt(&encrypted, &key);
+        assert_eq!(&decrypted, data, "XOR crypt should be its own inverse");
     }
 }
