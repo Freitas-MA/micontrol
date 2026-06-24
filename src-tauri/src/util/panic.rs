@@ -3,9 +3,8 @@
 //! Provides:
 //! - `lock_or_recover`: recover from poisoned mutexes instead of panicking
 //! - `install_panic_hook`: global panic hook that logs to file and stderr
-//! - `spawn_with_recovery`: spawn a tokio task that logs and continues on panic
 
-use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Mutex, MutexGuard};
 
 /// Lock a `Mutex`, recovering from poison instead of panicking.
 ///
@@ -22,24 +21,6 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 pub fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| {
         log::error!("Mutex poisoned, recovering with inner data: {}", e);
-        e.into_inner()
-    })
-}
-
-#[allow(dead_code)]
-/// Read-lock a `RwLock`, recovering from poison.
-pub fn read_or_recover<T>(rwlock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
-    rwlock.read().unwrap_or_else(|e| {
-        log::error!("RwLock read poisoned, recovering: {}", e);
-        e.into_inner()
-    })
-}
-
-#[allow(dead_code)]
-/// Write-lock a `RwLock`, recovering from poison.
-pub fn write_or_recover<T>(rwlock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
-    rwlock.write().unwrap_or_else(|e| {
-        log::error!("RwLock write poisoned, recovering: {}", e);
         e.into_inner()
     })
 }
@@ -78,35 +59,6 @@ pub fn install_panic_hook() {
     }));
 }
 
-#[allow(dead_code)]
-/// Spawn a tokio task that catches panics and logs them, preventing a single
-/// task's panic from crashing the runtime.
-///
-/// Returns the JoinHandle so the caller can await the result if needed.
-pub fn spawn_with_recovery<F, T>(name: &'static str, f: F) -> tokio::task::JoinHandle<Option<T>>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    tokio::spawn(async move {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        match result {
-            Ok(value) => Some(value),
-            Err(e) => {
-                let msg = if let Some(s) = e.downcast_ref::<&str>() {
-                    s.to_string()
-                } else if let Some(s) = e.downcast_ref::<String>() {
-                    s.clone()
-                } else {
-                    "unknown panic".to_string()
-                };
-                log::error!("Task '{}' panicked: {}", name, msg);
-                None
-            }
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,58 +90,8 @@ mod tests {
     }
 
     #[test]
-    fn test_read_or_recover_normal() {
-        let rw = RwLock::new(100);
-        let guard = read_or_recover(&rw);
-        assert_eq!(*guard, 100);
-    }
-
-    #[test]
-    fn test_write_or_recover_normal() {
-        let rw = RwLock::new(200);
-        {
-            let mut guard = write_or_recover(&rw);
-            *guard = 300;
-        }
-        let guard = read_or_recover(&rw);
-        assert_eq!(*guard, 300);
-    }
-
-    #[test]
-    fn test_read_or_recover_after_poison() {
-        let rw = Arc::new(RwLock::new(5));
-        let rw2 = Arc::clone(&rw);
-
-        let handle = thread::spawn(move || {
-            let _guard = rw2.write().unwrap();
-            panic!("intentional poison");
-        });
-        let _ = handle.join();
-
-        // Should recover instead of panicking
-        let guard = read_or_recover(&rw);
-        assert_eq!(*guard, 5);
-    }
-
-    #[test]
     fn test_install_panic_hook_does_not_panic() {
         // Just verify it can be called without error
         install_panic_hook();
-    }
-
-    #[tokio::test]
-    async fn test_spawn_with_recovery_success() {
-        let handle = spawn_with_recovery("test_ok", || 42);
-        let result = handle.await.unwrap();
-        assert_eq!(result, Some(42));
-    }
-
-    #[tokio::test]
-    async fn test_spawn_with_recovery_panic() {
-        let handle = spawn_with_recovery("test_panic", || {
-            panic!("test panic");
-        });
-        let result = handle.await.unwrap();
-        assert_eq!(result, None); // None because the task panicked
     }
 }

@@ -144,7 +144,7 @@ pub async fn write_iot_hex(address: String, hex_data: String) -> Result<(), Erro
             );
         }
 
-        crate::hw::ecram::write_ecram(addr, &bytes)
+        crate::hw::ecram::write_ecram(addr, &bytes).map_err(Into::into)
     })
     .await
     .map_err(|e| format!("blocking task panicked: {e}"))?

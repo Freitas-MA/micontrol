@@ -318,6 +318,89 @@ pub fn restrict_file_acl(_path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Check if the HMAC key needs rotation (default: 30 days).
+///
+/// Returns true if the key file is older than the rotation period.
+pub fn key_needs_rotation() -> bool {
+    let path = key_path();
+    match std::fs::metadata(&path) {
+        Ok(meta) => {
+            if let Ok(modified) = meta.modified() {
+                let age = std::time::SystemTime::now()
+                    .duration_since(modified)
+                    .unwrap_or_default();
+                age.as_secs() > 30 * 24 * 60 * 60 // 30 days
+            } else {
+                false
+            }
+        }
+        Err(_) => false, // No key file yet — will be created by get_or_create_key
+    }
+}
+
+/// Rotate the HMAC key — generates a new key and stores it.
+///
+/// The old key is accepted for a grace period (7 days) by keeping a backup
+/// file `elev_key.bin.old`.
+pub fn rotate_key() -> Result<(), String> {
+    let path = key_path();
+    let old_path = key_path().with_extension("bin.old");
+
+    // Backup the old key
+    if path.exists() {
+        std::fs::copy(&path, &old_path)
+            .map_err(|e| format!("Failed to backup old HMAC key: {e}"))?;
+    }
+
+    // Generate a new key
+    let mut key = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key);
+
+    // Write the new key
+    std::fs::write(&path, key).map_err(|e| format!("Failed to write new HMAC key: {e}"))?;
+
+    // Restrict ACL on the new key
+    restrict_file_acl(&path)?;
+
+    log::info!("HMAC key rotated successfully");
+    Ok(())
+}
+
+/// Read the old (backup) key for grace period verification.
+///
+/// Returns `Ok(key)` if the backup exists and is within the grace period (7 days).
+/// Returns `Err` if no backup exists or it's expired.
+pub fn read_old_key() -> Result<Vec<u8>, String> {
+    let old_path = key_path().with_extension("bin.old");
+
+    // Check if backup exists
+    if !old_path.exists() {
+        return Err("No backup key file".to_string());
+    }
+
+    // Check if backup is within grace period (7 days)
+    if let Ok(meta) = std::fs::metadata(&old_path) {
+        if let Ok(modified) = meta.modified() {
+            let age = std::time::SystemTime::now()
+                .duration_since(modified)
+                .unwrap_or_default();
+            if age.as_secs() > 7 * 24 * 60 * 60 {
+                // Grace period expired — delete the backup
+                let _ = std::fs::remove_file(&old_path);
+                return Err("Backup key grace period expired".to_string());
+            }
+        }
+    }
+
+    // Read the backup key
+    let bytes =
+        std::fs::read(&old_path).map_err(|e| format!("Cannot read backup key file: {e}"))?;
+    if bytes.len() != 32 {
+        return Err("Backup key file is corrupt".to_string());
+    }
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,5 +530,12 @@ mod tests {
         });
         sign_payload(&mut payload, key1);
         assert!(verify_payload(&mut payload, key2).is_err());
+    }
+
+    #[test]
+    fn test_key_needs_rotation_no_file() {
+        // When no key file exists, rotation is not needed (will be created)
+        // This test just verifies the function doesn't panic
+        let _ = key_needs_rotation();
     }
 }

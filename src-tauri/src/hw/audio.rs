@@ -3,6 +3,7 @@
 // Audio device enumeration and control via Windows Core Audio API.
 // Provides device listing, volume control, and mute toggle.
 
+use crate::hw::errors::HardwareResult;
 #[cfg(windows)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,7 @@ pub struct AudioVolumeResult {
 }
 
 #[cfg(windows)]
-pub fn list_audio_devices() -> Result<AudioDeviceList> {
+pub fn list_audio_devices() -> HardwareResult<AudioDeviceList> {
     use windows::Win32::Media::Audio::{
         eCapture, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
     };
@@ -44,7 +45,7 @@ pub fn list_audio_devices() -> Result<AudioDeviceList> {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
 
-    let result = (|| -> Result<AudioDeviceList> {
+    let result = (|| -> anyhow::Result<AudioDeviceList> {
         // SAFETY: CoCreateInstance creates a COM object from a known CLSID; the returned interface pointer is valid and we consume it within this scope.
         unsafe {
             let enumerator: IMMDeviceEnumerator =
@@ -59,11 +60,11 @@ pub fn list_audio_devices() -> Result<AudioDeviceList> {
     unsafe {
         CoUninitialize();
     }
-    result
+    result.map_err(Into::into)
 }
 
 #[cfg(not(windows))]
-pub fn list_audio_devices() -> Result<AudioDeviceList> {
+pub fn list_audio_devices() -> HardwareResult<AudioDeviceList> {
     Ok(AudioDeviceList {
         playback: vec![],
         capture: vec![],
@@ -71,7 +72,7 @@ pub fn list_audio_devices() -> Result<AudioDeviceList> {
 }
 
 #[cfg(windows)]
-pub fn get_playback_volume() -> Result<AudioVolumeResult> {
+pub fn get_playback_volume() -> HardwareResult<AudioVolumeResult> {
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{
         eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
@@ -85,7 +86,7 @@ pub fn get_playback_volume() -> Result<AudioVolumeResult> {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
 
-    let result = (|| -> Result<AudioVolumeResult> {
+    let result = (|| -> anyhow::Result<AudioVolumeResult> {
         // SAFETY: CoCreateInstance creates a known COM object; the returned interface pointers are valid for the scope of this closure.
         unsafe {
             let enumerator: IMMDeviceEnumerator =
@@ -106,11 +107,11 @@ pub fn get_playback_volume() -> Result<AudioVolumeResult> {
     unsafe {
         CoUninitialize();
     }
-    result
+    result.map_err(Into::into)
 }
 
 #[cfg(not(windows))]
-pub fn get_playback_volume() -> Result<AudioVolumeResult> {
+pub fn get_playback_volume() -> HardwareResult<AudioVolumeResult> {
     Ok(AudioVolumeResult {
         success: false,
         volume: 0,
@@ -119,7 +120,7 @@ pub fn get_playback_volume() -> Result<AudioVolumeResult> {
 }
 
 #[cfg(windows)]
-pub fn set_playback_volume(volume: u8) -> Result<AudioVolumeResult> {
+pub fn set_playback_volume(volume: u8) -> HardwareResult<AudioVolumeResult> {
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{
         eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
@@ -157,11 +158,11 @@ pub fn set_playback_volume(volume: u8) -> Result<AudioVolumeResult> {
     unsafe {
         CoUninitialize();
     }
-    result
+    result.map_err(Into::into)
 }
 
 #[cfg(not(windows))]
-pub fn set_playback_volume(_volume: u8) -> Result<AudioVolumeResult> {
+pub fn set_playback_volume(_volume: u8) -> HardwareResult<AudioVolumeResult> {
     Ok(AudioVolumeResult {
         success: false,
         volume: 0,
@@ -170,7 +171,7 @@ pub fn set_playback_volume(_volume: u8) -> Result<AudioVolumeResult> {
 }
 
 #[cfg(windows)]
-pub fn set_playback_mute(muted: bool) -> Result<AudioVolumeResult> {
+pub fn set_playback_mute(muted: bool) -> HardwareResult<AudioVolumeResult> {
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{
         eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
@@ -205,11 +206,11 @@ pub fn set_playback_mute(muted: bool) -> Result<AudioVolumeResult> {
     unsafe {
         CoUninitialize();
     }
-    result
+    result.map_err(Into::into)
 }
 
 #[cfg(not(windows))]
-pub fn set_playback_mute(_muted: bool) -> Result<AudioVolumeResult> {
+pub fn set_playback_mute(_muted: bool) -> HardwareResult<AudioVolumeResult> {
     Ok(AudioVolumeResult {
         success: false,
         volume: 0,

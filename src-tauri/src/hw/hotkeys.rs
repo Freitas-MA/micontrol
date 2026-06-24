@@ -45,7 +45,8 @@ use std::time::Duration;
 
 use crate::util::panic::lock_or_recover;
 
-use anyhow::{Context, Result};
+use crate::hw::errors::HardwareResult;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -332,7 +333,7 @@ fn migrate_config(mut cfg: HotkeyMap) -> HotkeyMap {
 }
 
 /// Persist hotkey config to `%LOCALAPPDATA%\MiControl\hotkeys.json`.
-pub fn save_config(config: &HotkeyMap) -> Result<()> {
+pub fn save_config(config: &HotkeyMap) -> HardwareResult<()> {
     let path = config_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).context("create MiControl data dir")?;

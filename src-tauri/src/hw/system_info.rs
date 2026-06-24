@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::hw::errors::HardwareResult;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
@@ -348,7 +348,7 @@ pub struct SystemInfo {
     pub os_version: String,
 }
 
-pub fn get_system_info() -> Result<SystemInfo> {
+pub fn get_system_info() -> HardwareResult<SystemInfo> {
     #[cfg(windows)]
     {
         use crate::hw::wmi_cache;
@@ -358,7 +358,7 @@ pub fn get_system_info() -> Result<SystemInfo> {
         ensure_gpu_poller();
         ensure_cpu_poller();
 
-        wmi_cache::with_cimv2(|wmi| {
+        let info = wmi_cache::with_cimv2(|wmi| {
             // ── Static CPU identity (name, cores, threads) ────────────────────
             let cpus: Vec<HashMap<String, wmi::Variant>> = wmi
                 .raw_query(
@@ -471,7 +471,8 @@ pub fn get_system_info() -> Result<SystemInfo> {
                 ram_used_gb,
                 os_version,
             })
-        })
+        });
+        info
     }
     #[cfg(not(windows))]
     {

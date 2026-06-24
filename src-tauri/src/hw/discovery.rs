@@ -6,7 +6,8 @@
 /// and re-loaded on subsequent starts so the scan happens at most once a week.
 ///
 /// Other hw modules call `global_profile()` to read the discovered paths.
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -149,7 +150,7 @@ pub fn rediscover(app_data_dir: Option<PathBuf>) -> HardwareProfile {
 
 /// Try to install a bundled driver using `pnputil /add-driver … /install`.
 /// Requires administrator rights — returns a descriptive error if access is denied.
-pub fn install_driver(inf_path: &str) -> Result<String> {
+pub fn install_driver(inf_path: &str) -> HardwareResult<String> {
     let output = no_window_command("pnputil")
         .args(["/add-driver", inf_path, "/install"])
         .output()?;
@@ -158,12 +159,15 @@ pub fn install_driver(inf_path: &str) -> Result<String> {
     if output.status.success() {
         Ok(format!("Driver installed successfully.\n{stdout}"))
     } else if stderr.contains("Access") || stdout.contains("Access") {
-        anyhow::bail!(
+        Err(HardwareError::Other(
             "Administrator rights required to install drivers. \
              Please restart MiControl as Administrator."
-        )
+                .into(),
+        ))
     } else {
-        anyhow::bail!("pnputil failed: {stderr}{stdout}")
+        Err(HardwareError::Other(format!(
+            "pnputil failed: {stderr}{stdout}"
+        )))
     }
 }
 
@@ -173,14 +177,15 @@ pub fn install_driver(inf_path: &str) -> Result<String> {
 /// - `driver_name` must be a simple token (no path separators / traversal chars)
 /// - resolved `.inf` must exist
 /// - canonicalized `.inf` path must remain inside the app resources directory
-pub fn resolve_bundled_inf_by_name(driver_name: &str) -> Result<String> {
+pub fn resolve_bundled_inf_by_name(driver_name: &str) -> HardwareResult<String> {
     let name = driver_name.trim();
-    anyhow::ensure!(!name.is_empty(), "Driver name cannot be empty");
+    if name.is_empty() {
+        return Err(HardwareError::Other("Driver name cannot be empty".into()));
+    }
     let has_forbidden = name.chars().any(|c| c == '\\' || c == '/' || c == ':');
-    anyhow::ensure!(
-        !has_forbidden && !name.contains(".."),
-        "Invalid driver name"
-    );
+    if has_forbidden || name.contains("..") {
+        return Err(HardwareError::Other("Invalid driver name".into()));
+    }
 
     let resources = resources_dir();
     let resources_canon = std::fs::canonicalize(&resources)
@@ -214,11 +219,12 @@ pub fn resolve_bundled_inf_by_name(driver_name: &str) -> Result<String> {
         }
     }
 
-    anyhow::ensure!(
-        !candidates.is_empty(),
-        "Bundled .inf for driver '{}' is not registered.",
-        name
-    );
+    if candidates.is_empty() {
+        return Err(HardwareError::Other(format!(
+            "Bundled .inf for driver '{}' is not registered.",
+            name
+        )));
+    }
 
     for candidate in candidates {
         if !candidate.exists() {
@@ -233,10 +239,10 @@ pub fn resolve_bundled_inf_by_name(driver_name: &str) -> Result<String> {
         }
     }
 
-    anyhow::bail!(
+    Err(HardwareError::Other(format!(
         "Bundled .inf for driver '{}' not found or outside resources directory.",
         name
-    );
+    )))
 }
 
 /// Locate the app's resources directory (works in both dev and installed modes).
@@ -262,6 +268,27 @@ fn load_or_discover(data_dir: Option<&Path>) -> HardwareProfile {
     if let Some(path) = profile_file_path(data_dir) {
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
+                // Verify HMAC integrity if a signature file exists
+                let hmac_path = path.with_extension("json.hmac");
+                if hmac_path.exists() {
+                    if let Ok(stored_hmac) = std::fs::read_to_string(&hmac_path) {
+                        if !stored_hmac.is_empty() {
+                            if let Ok(key) = crate::util::auth::get_or_create_key() {
+                                if !crate::util::auth::verify_hmac(
+                                    &key,
+                                    content.as_bytes(),
+                                    &stored_hmac,
+                                ) {
+                                    log::warn!("Hardware profile HMAC verification failed — re-discovering");
+                                    let profile = run_discovery();
+                                    save_profile(&profile, data_dir);
+                                    return profile;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if let Ok(p) = serde_json::from_str::<HardwareProfile>(&content) {
                     if !is_stale(p.discovered_at, 7) {
                         #[cfg(windows)]
@@ -297,6 +324,13 @@ fn save_profile(profile: &HardwareProfile, data_dir: Option<&Path>) {
             let _ = std::fs::create_dir_all(parent);
         }
         if let Ok(json) = serde_json::to_string_pretty(profile) {
+            // Sign the profile JSON with HMAC for integrity verification
+            if let Ok(key) = crate::util::auth::get_or_create_key() {
+                let hmac = crate::util::auth::compute_hmac(&key, json.as_bytes());
+                let hmac_path = path.with_extension("json.hmac");
+                let _ = std::fs::write(&hmac_path, hmac);
+            }
+
             match std::fs::write(&path, json) {
                 Ok(()) => log::info!("Hardware profile saved to {}", path.display()),
                 Err(e) => log::warn!("Could not save hardware profile: {e}"),
@@ -963,5 +997,19 @@ mod tests {
     fn test_hid_instance_root_parses_expected_segment() {
         let p = r"\\?\hid#vid_3151&pid_8888&mi_01&col05#7&5a6d3c2&0&0004#{4d1e55b2-f16f-11cf-88cb-001111000030}";
         assert_eq!(hid_instance_root(p).as_deref(), Some("7&5a6d3c2&0"));
+    }
+
+    #[test]
+    fn test_profile_integrity_check() {
+        // Verify that HMAC verification detects tampering
+        let data = b"test profile data";
+        let key = vec![0u8; 32]; // test key
+        let hmac = crate::util::auth::compute_hmac(&key, data);
+        assert!(crate::util::auth::verify_hmac(&key, data, &hmac));
+        assert!(!crate::util::auth::verify_hmac(
+            &key,
+            b"tampered data",
+            &hmac
+        ));
     }
 }

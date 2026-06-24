@@ -20,12 +20,6 @@ impl Default for AppState {
 }
 
 impl AppState {
-    /// Get a clone of the hardware profile, or None if not yet initialized.
-    #[allow(dead_code)]
-    pub fn get_profile(&self) -> Option<HardwareProfile> {
-        self.hardware_profile.read().ok()?.clone()
-    }
-
     /// Set the hardware profile.
     pub fn set_profile(&self, profile: HardwareProfile) {
         if let Ok(mut guard) = self.hardware_profile.write() {

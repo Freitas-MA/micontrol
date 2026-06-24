@@ -3,8 +3,8 @@
 // Screen casting via Windows Miracast API.
 // Provides device discovery and casting control.
 
-#[cfg(windows)]
-use anyhow::{Context, Result};
+use crate::hw::errors::HardwareResult;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 /// A Miracast receiver device.
@@ -24,7 +24,7 @@ pub struct CastResult {
 
 /// List available Miracast/WiDi receivers.
 #[cfg(windows)]
-pub fn list_cast_devices() -> Result<Vec<CastDevice>> {
+pub fn list_cast_devices() -> HardwareResult<Vec<CastDevice>> {
     // Windows 10/11 has built-in Miracast support via the Connect quick action.
     // We use the Windows.Media.Casting API via PowerShell as a fallback.
     // For now, return an empty list with a note.
@@ -34,13 +34,13 @@ pub fn list_cast_devices() -> Result<Vec<CastDevice>> {
 }
 
 #[cfg(not(windows))]
-pub fn list_cast_devices() -> Result<Vec<CastDevice>> {
+pub fn list_cast_devices() -> HardwareResult<Vec<CastDevice>> {
     Ok(Vec::new())
 }
 
 /// Start casting to a device by ID.
 #[cfg(windows)]
-pub fn start_casting(_device_id: &str) -> Result<CastResult> {
+pub fn start_casting(_device_id: &str) -> HardwareResult<CastResult> {
     // Launch the Windows Connect quick action panel
     let result = std::process::Command::new("cmd")
         .args(["/c", "start", "ms-settings-connectabledevices:project"])
@@ -59,7 +59,7 @@ pub fn start_casting(_device_id: &str) -> Result<CastResult> {
 }
 
 #[cfg(not(windows))]
-pub fn start_casting(_device_id: &str) -> Result<CastResult> {
+pub fn start_casting(_device_id: &str) -> HardwareResult<CastResult> {
     Ok(CastResult {
         success: false,
         message: "Screen casting only available on Windows".into(),
@@ -68,7 +68,7 @@ pub fn start_casting(_device_id: &str) -> Result<CastResult> {
 
 /// Stop casting.
 #[cfg(windows)]
-pub fn stop_casting() -> Result<CastResult> {
+pub fn stop_casting() -> HardwareResult<CastResult> {
     // Close the Connect panel
     let result = std::process::Command::new("cmd")
         .args(["/c", "taskkill", "/f", "/im", "SystemSettings.exe"])
@@ -82,7 +82,7 @@ pub fn stop_casting() -> Result<CastResult> {
 }
 
 #[cfg(not(windows))]
-pub fn stop_casting() -> Result<CastResult> {
+pub fn stop_casting() -> HardwareResult<CastResult> {
     Ok(CastResult {
         success: false,
         message: "Screen casting only available on Windows".into(),

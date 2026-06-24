@@ -15,7 +15,7 @@
 use crate::util::auth;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -65,14 +65,24 @@ pub fn run() -> ! {
                                     if let Some(ref nonce) = cmd.nonce {
                                         let mut seen = SEEN_NONCES.lock().unwrap();
                                         if seen.is_none() {
-                                            *seen = Some(HashSet::new());
+                                            *seen = Some(load_nonces());
                                         }
-                                        if !seen.as_mut().unwrap().insert(nonce.clone()) {
+                                        let now = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs();
+                                        let map = seen.as_mut().unwrap();
+                                        if map.contains_key(nonce) {
                                             log::warn!(
                                                 "Replay attack detected: duplicate nonce {nonce}"
                                             );
                                             make_err(format!("Duplicate nonce: {nonce}"))
                                         } else {
+                                            map.insert(nonce.clone(), now);
+                                            // Persist every 10 nonces as a batch
+                                            if map.len().is_multiple_of(10) {
+                                                save_nonces(map);
+                                            }
                                             dispatch(cmd)
                                         }
                                     } else {
@@ -115,8 +125,42 @@ pub fn run() -> ! {
     std::process::exit(0);
 }
 
-/// Tracks seen nonces to detect replay attacks.
-static SEEN_NONCES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+/// Tracks seen nonces to detect replay attacks, with timestamps for TTL.
+static SEEN_NONCES: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+
+/// Path to the nonce store file.
+fn nonce_store_path() -> std::path::PathBuf {
+    elev_dir().join("nonces.json")
+}
+
+/// Persist nonces to disk.
+fn save_nonces(nonces: &HashMap<String, u64>) {
+    let path = nonce_store_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(nonces) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+/// Load nonces from disk, purging expired ones (older than 5 minutes).
+fn load_nonces() -> HashMap<String, u64> {
+    let path = nonce_store_path();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    if let Ok(json) = std::fs::read_to_string(&path) {
+        if let Ok(mut nonces) = serde_json::from_str::<HashMap<String, u64>>(&json) {
+            // Purge expired nonces (older than 5 minutes)
+            nonces.retain(|_, ts| now.saturating_sub(*ts) < 300);
+            return nonces;
+        }
+    }
+    HashMap::new()
+}
 
 // ── Command/Result types ─────────────────────────────────────────────────────
 

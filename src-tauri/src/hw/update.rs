@@ -4,7 +4,8 @@
 /// own scan engine to check for official Xiaomi driver and BIOS updates.
 /// It avoids generic Windows Update drivers by reading from XPM's registry cache
 /// and, when available, triggering XPM's update checker component directly.
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -58,7 +59,7 @@ const DRIVER_REG_KEY: &str = r"SOFTWARE\MI\Driver";
 
 /// Collect full update / version status.
 /// Reads XPM registry cache + installed drivers via pnputil + BIOS via WMI.
-pub fn get_update_status() -> Result<UpdateStatus> {
+pub fn get_update_status() -> HardwareResult<UpdateStatus> {
     let (xpm_installed, xpm_path, xpm_version) = detect_xpm();
     let last_xpm_scan = read_last_scan_time().ok();
     let xpm_driver_cache = read_xpm_driver_cache().unwrap_or_default();
@@ -85,7 +86,7 @@ pub fn get_update_status() -> Result<UpdateStatus> {
 ///   3. Write HKLM\SOFTWARE\MI\Driver\RequestScan=1 registry flag (read by XPM on next start)
 ///
 /// Returns a human-readable message describing what was done.
-pub fn trigger_driver_scan() -> Result<String> {
+pub fn trigger_driver_scan() -> HardwareResult<String> {
     let (installed, path_opt, _) = detect_xpm();
 
     // ── Strategy 1: try known XPM helper executables ──────────────────────
@@ -151,9 +152,10 @@ pub fn trigger_driver_scan() -> Result<String> {
         }
     }
 
-    anyhow::bail!(
+    Err(HardwareError::Other(
         "Could not trigger scan: XPM not installed and pnputil /scan-devices unavailable."
-    )
+            .to_string(),
+    ))
 }
 
 // ── XPM detection ────────────────────────────────────────────────────────────
@@ -187,7 +189,7 @@ fn detect_xpm() -> (bool, Option<String>, Option<String>) {
 
 // ── Registry reads ───────────────────────────────────────────────────────────
 
-fn read_last_scan_time() -> Result<String> {
+fn read_last_scan_time() -> anyhow::Result<String> {
     #[cfg(windows)]
     {
         use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
@@ -205,7 +207,7 @@ fn read_last_scan_time() -> Result<String> {
 }
 
 /// Read all string values from HKLM\SOFTWARE\MI\Driver\ into a flat map.
-fn read_xpm_driver_cache() -> Result<HashMap<String, String>> {
+fn read_xpm_driver_cache() -> anyhow::Result<HashMap<String, String>> {
     #[cfg(windows)]
     {
         use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
@@ -245,7 +247,7 @@ fn read_xpm_driver_cache() -> Result<HashMap<String, String>> {
 
 // ── BIOS info (WMI) ──────────────────────────────────────────────────────────
 
-fn get_bios_info() -> Result<BiosInfo> {
+fn get_bios_info() -> anyhow::Result<BiosInfo> {
     #[cfg(windows)]
     {
         use wmi::{COMLibrary, WMIConnection};
@@ -268,7 +270,7 @@ fn get_bios_info() -> Result<BiosInfo> {
 
 // ── Installed Xiaomi drivers (pnputil) ───────────────────────────────────────
 
-fn get_xiaomi_drivers() -> Result<Vec<XiaomiDriverInfo>> {
+fn get_xiaomi_drivers() -> anyhow::Result<Vec<XiaomiDriverInfo>> {
     let output = no_window_command("pnputil")
         .args(["/enum-drivers"])
         .output()
@@ -277,7 +279,7 @@ fn get_xiaomi_drivers() -> Result<Vec<XiaomiDriverInfo>> {
     parse_pnputil_drivers(&text)
 }
 
-fn parse_pnputil_drivers(text: &str) -> Result<Vec<XiaomiDriverInfo>> {
+fn parse_pnputil_drivers(text: &str) -> anyhow::Result<Vec<XiaomiDriverInfo>> {
     let mut result = Vec::new();
     let mut current: HashMap<String, String> = HashMap::new();
 

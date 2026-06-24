@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense, memo } from 'react';
 import type { ThemeMode } from '../App';
 import { t } from '../hooks/useI18n';
 import type { useHardware } from '../hooks/useHardware';
@@ -115,6 +115,94 @@ function ThemeIcon({ mode }: { mode: ThemeMode }) {
 
 const THEME_LABELS: Record<ThemeMode, string> = { auto: 'Auto', light: 'Light', dark: 'Dark' };
 
+interface SidebarProps {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  themeMode: ThemeMode;
+  toggleTheme: () => void;
+  hardware: Hardware;
+  setShowTrayPreview: (v: boolean) => void;
+}
+
+const Sidebar = memo(function Sidebar({
+  activeTab,
+  onTabChange,
+  themeMode,
+  toggleTheme,
+  hardware,
+  setShowTrayPreview,
+}: SidebarProps) {
+  return (
+    <nav aria-label="Main navigation" className="sidebar">
+      <div className="sidebar-logo">
+        <MiControlIcon size={22} />
+        MiControl
+      </div>
+      {NAV_ITEMS.map((item) => (
+        <button
+          key={item.id}
+          className={`sidebar-item ${activeTab === item.id ? 'active' : ''}`}
+          onClick={() => onTabChange(item.id)}
+          aria-label={t(item.label as Parameters<typeof t>[0])}
+        >
+          <span className="sidebar-icon" aria-hidden="true">
+            {item.icon}
+          </span>
+          {t(item.label as Parameters<typeof t>[0])}
+        </button>
+      ))}
+
+      <div className="sidebar-footer">
+        {hardware.error && (
+          <div
+            style={{
+              padding: '4px 8px',
+              fontSize: 11,
+              color: 'var(--error)',
+              wordBreak: 'break-word',
+            }}
+          >
+            ⚠️ {hardware.error}
+          </div>
+        )}
+        {hardware.loading && (
+          <div style={{ padding: '4px 8px', fontSize: 11, color: 'var(--text-dim)' }}>
+            {t('common.loading')}
+          </div>
+        )}
+        <button className="theme-toggle" onClick={toggleTheme} title={`Theme: ${themeMode}`}>
+          <ThemeIcon mode={themeMode} />
+          <span>{THEME_LABELS[themeMode]}</span>
+        </button>
+        {import.meta.env.DEV && (
+          <button
+            className="theme-toggle"
+            onClick={() => setShowTrayPreview(true)}
+            title="Preview tray popup"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="1" y="10" width="14" height="5" rx="1" />
+              <rect x="1" y="1" width="14" height="7" rx="1" />
+              <line x1="4" y1="12.5" x2="4" y2="12.5" strokeWidth="2" />
+              <line x1="7" y1="12.5" x2="7" y2="12.5" strokeWidth="2" />
+            </svg>
+            <span>Tray</span>
+          </button>
+        )}
+      </div>
+    </nav>
+  );
+});
+
 export default function MainWindow({
   hardware,
   activeTab,
@@ -227,73 +315,14 @@ export default function MainWindow({
 
   return (
     <div className="app-layout">
-      <nav aria-label="Main navigation" className="sidebar">
-        <div className="sidebar-logo">
-          <MiControlIcon size={22} />
-          MiControl
-        </div>
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            className={`sidebar-item ${activeTab === item.id ? 'active' : ''}`}
-            onClick={() => onTabChange(item.id)}
-            aria-label={t(item.label as Parameters<typeof t>[0])}
-          >
-            <span className="sidebar-icon" aria-hidden="true">
-              {item.icon}
-            </span>
-            {t(item.label as Parameters<typeof t>[0])}
-          </button>
-        ))}
-
-        <div className="sidebar-footer">
-          {hardware.error && (
-            <div
-              style={{
-                padding: '4px 8px',
-                fontSize: 11,
-                color: 'var(--error)',
-                wordBreak: 'break-word',
-              }}
-            >
-              ⚠️ {hardware.error}
-            </div>
-          )}
-          {hardware.loading && (
-            <div style={{ padding: '4px 8px', fontSize: 11, color: 'var(--text-dim)' }}>
-              {t('common.loading')}
-            </div>
-          )}
-          <button className="theme-toggle" onClick={toggleTheme} title={`Theme: ${themeMode}`}>
-            <ThemeIcon mode={themeMode} />
-            <span>{THEME_LABELS[themeMode]}</span>
-          </button>
-          {import.meta.env.DEV && (
-            <button
-              className="theme-toggle"
-              onClick={() => setShowTrayPreview(true)}
-              title="Preview tray popup"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="1" y="10" width="14" height="5" rx="1" />
-                <rect x="1" y="1" width="14" height="7" rx="1" />
-                <line x1="4" y1="12.5" x2="4" y2="12.5" strokeWidth="2" />
-                <line x1="7" y1="12.5" x2="7" y2="12.5" strokeWidth="2" />
-              </svg>
-              <span>Tray</span>
-            </button>
-          )}
-        </div>
-      </nav>
+      <Sidebar
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        themeMode={themeMode}
+        toggleTheme={toggleTheme}
+        hardware={hardware}
+        setShowTrayPreview={setShowTrayPreview}
+      />
 
       <main className="content-area">
         <div className="tab-content" key={activeTab}>

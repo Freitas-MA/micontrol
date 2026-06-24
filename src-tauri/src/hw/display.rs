@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU8, Ordering};
 
@@ -103,7 +104,7 @@ pub fn current_brightness() -> u8 {
     read_current_brightness().unwrap_or(80)
 }
 
-pub fn get_display_info() -> Result<DisplayInfo> {
+pub fn get_display_info() -> HardwareResult<DisplayInfo> {
     // WMI brightness = what Windows Display Settings slider shows (ground truth).
     let brightness = get_brightness_wmi().unwrap_or_else(|_| get_brightness_igcl().unwrap_or(80));
     let hdr_enabled = get_hdr_state();
@@ -131,7 +132,7 @@ pub fn get_display_info() -> Result<DisplayInfo> {
     })
 }
 
-pub fn set_brightness(level: u8) -> Result<()> {
+pub fn set_brightness(level: u8) -> HardwareResult<()> {
     let level = level.clamp(10, 100);
     // Only try IGCL if it has not already failed permanently.
     if IGCL_SET_AVAILABLE.load(Ordering::Relaxed) {
@@ -146,11 +147,11 @@ pub fn set_brightness(level: u8) -> Result<()> {
     Ok(())
 }
 
-pub fn set_hdr(enabled: bool) -> Result<()> {
+pub fn set_hdr(enabled: bool) -> HardwareResult<()> {
     set_hdr_ccd(enabled)
 }
 
-pub fn set_ai_brightness(enabled: bool) -> Result<()> {
+pub fn set_ai_brightness(enabled: bool) -> HardwareResult<()> {
     // Toggle the enabled flag while preserving all other config values.
     let mut cfg = get_ai_brightness_config();
     cfg.enabled = enabled;
@@ -179,7 +180,7 @@ fn read_display_dword(name: &str, default: u32) -> u32 {
     default
 }
 
-fn write_display_dword(name: &str, value: u32) -> Result<()> {
+fn write_display_dword(name: &str, value: u32) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
@@ -204,7 +205,7 @@ pub fn get_ai_brightness_config() -> AiBrightnessConfig {
     }
 }
 
-pub fn set_ai_brightness_config(config: AiBrightnessConfig) -> Result<()> {
+pub fn set_ai_brightness_config(config: AiBrightnessConfig) -> HardwareResult<()> {
     persist_ai_brightness_registry(config.enabled)?;
     write_display_dword(AI_BRIGHTNESS_MIN_VALUE, config.min_brightness as u32)?;
     write_display_dword(AI_BRIGHTNESS_MAX_VALUE, config.max_brightness as u32)?;
@@ -424,9 +425,9 @@ mod igcl {
 }
 
 #[cfg(windows)]
-pub fn with_igcl_device_pub<F, T>(f: F) -> Result<T>
+pub fn with_igcl_device_pub<F, T>(f: F) -> HardwareResult<T>
 where
-    F: FnOnce(*mut std::ffi::c_void, &libloading::Library) -> Result<T>,
+    F: FnOnce(*mut std::ffi::c_void, &libloading::Library) -> HardwareResult<T>,
 {
     use igcl::*;
     use libloading::Library;
@@ -457,14 +458,14 @@ where
         let mut api_handle: CtlApiHandle = std::ptr::null_mut();
         let rc = ctl_init(&mut init_args, &mut api_handle);
         if rc != 0 {
-            anyhow::bail!("ctlInit failed: {rc}");
+            return Err(HardwareError::Display(format!("ctlInit failed: {rc}")));
         }
 
         let mut count: u32 = 0;
         ctl_enumerate(api_handle, &mut count, std::ptr::null_mut());
         if count == 0 {
             ctl_close(api_handle);
-            anyhow::bail!("No IGCL devices found");
+            return Err(HardwareError::Display("No IGCL devices found".to_string()));
         }
         let mut devices = vec![std::ptr::null_mut::<std::ffi::c_void>(); count as usize];
         ctl_enumerate(api_handle, &mut count, devices.as_mut_ptr());
@@ -477,7 +478,7 @@ where
 }
 
 #[cfg(windows)]
-fn get_brightness_igcl() -> Result<u8> {
+fn get_brightness_igcl() -> HardwareResult<u8> {
     use igcl::*;
     with_igcl_device_pub(|device, lib| unsafe {
         // SAFETY: device is a valid IGCL device handle obtained from ctlEnumerateDevices.
@@ -495,19 +496,23 @@ fn get_brightness_igcl() -> Result<u8> {
         };
         let rc = get_brightness(device as CtlDeviceHandle, &mut args);
         if rc != 0 {
-            anyhow::bail!("ctlGetBrightnessSetting failed: {rc:#x}");
+            return Err(HardwareError::Display(format!(
+                "ctlGetBrightnessSetting failed: {rc:#x}"
+            )));
         }
         Ok(args.target_brightness.clamp(0.0, 100.0) as u8)
     })
 }
 
 #[cfg(not(windows))]
-fn get_brightness_igcl() -> Result<u8> {
-    anyhow::bail!("IGCL not on non-Windows")
+fn get_brightness_igcl() -> HardwareResult<u8> {
+    Err(HardwareError::NotSupported(
+        "IGCL not available on non-Windows".to_string(),
+    ))
 }
 
 #[cfg(windows)]
-fn set_brightness_igcl(level: u8) -> Result<()> {
+fn set_brightness_igcl(level: u8) -> HardwareResult<()> {
     use igcl::*;
     with_igcl_device_pub(|device, lib| unsafe {
         // SAFETY: device is a valid IGCL device handle. The brightness args struct is sized
@@ -524,26 +529,30 @@ fn set_brightness_igcl(level: u8) -> Result<()> {
         };
         let rc = set_brightness(device as CtlDeviceHandle, &mut args);
         if rc != 0 {
-            anyhow::bail!("ctlSetBrightnessSetting failed: {rc:#x}");
+            return Err(HardwareError::Display(format!(
+                "ctlSetBrightnessSetting failed: {rc:#x}"
+            )));
         }
         Ok(())
     })
 }
 
 #[cfg(not(windows))]
-fn set_brightness_igcl(_level: u8) -> Result<()> {
-    anyhow::bail!("IGCL not on non-Windows")
+fn set_brightness_igcl(_level: u8) -> HardwareResult<()> {
+    Err(HardwareError::NotSupported(
+        "IGCL not available on non-Windows".to_string(),
+    ))
 }
 
 // ── WMI fallback ────────────────────────────────────────────────────────────
 
-fn get_brightness_wmi() -> Result<u8> {
+fn get_brightness_wmi() -> HardwareResult<u8> {
     #[cfg(windows)]
     {
         use crate::hw::wmi_cache;
         use std::collections::HashMap;
 
-        wmi_cache::with_wmi(|wmi| {
+        let res = wmi_cache::with_wmi(|wmi| {
             let results: Vec<HashMap<String, wmi::Variant>> = wmi
                 .raw_query("SELECT CurrentBrightness FROM WmiMonitorBrightness")
                 .context("WmiMonitorBrightness")?;
@@ -552,7 +561,8 @@ fn get_brightness_wmi() -> Result<u8> {
                 Some(wmi::Variant::UI1(v)) => Ok(*v),
                 _ => Ok(80),
             }
-        })
+        });
+        res
     }
     #[cfg(not(windows))]
     {
@@ -560,7 +570,7 @@ fn get_brightness_wmi() -> Result<u8> {
     }
 }
 
-fn set_brightness_wmi(level: u8) -> Result<()> {
+fn set_brightness_wmi(level: u8) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -581,7 +591,9 @@ fn set_brightness_wmi(level: u8) -> Result<()> {
             .status()
             .context("PowerShell spawn for WmiSetBrightness")?;
         if !status.success() {
-            anyhow::bail!("WmiSetBrightness exited with {status}");
+            return Err(HardwareError::Display(format!(
+                "WmiSetBrightness exited with {status}"
+            )));
         }
     }
     Ok(())
@@ -654,7 +666,7 @@ use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
 /// the returned path/mode vectors are not modified while the underlying display config
 /// handle (which does not exist here — this is a one-shot query) remains in use.
 #[cfg(windows)]
-unsafe fn query_display_config_retry() -> anyhow::Result<(
+unsafe fn query_display_config_retry() -> HardwareResult<(
     u32,
     u32,
     Vec<DISPLAYCONFIG_PATH_INFO>,
@@ -665,7 +677,10 @@ unsafe fn query_display_config_retry() -> anyhow::Result<(
         let mut nm = 0u32;
         let rc = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm);
         if rc != ERROR_SUCCESS {
-            anyhow::bail!("GetDisplayConfigBufferSizes failed: {}", rc.0);
+            return Err(HardwareError::Display(format!(
+                "GetDisplayConfigBufferSizes failed: {}",
+                rc.0
+            )));
         }
         let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); np as usize];
         let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); nm as usize];
@@ -681,11 +696,16 @@ unsafe fn query_display_config_retry() -> anyhow::Result<(
             continue; // retry with fresh buffer sizes
         }
         if rc != ERROR_SUCCESS {
-            anyhow::bail!("QueryDisplayConfig failed: {}", rc.0);
+            return Err(HardwareError::Display(format!(
+                "QueryDisplayConfig failed: {}",
+                rc.0
+            )));
         }
         return Ok((np, nm, paths, modes));
     }
-    anyhow::bail!("QueryDisplayConfig: too many retries (display config keeps changing)")
+    Err(HardwareError::Display(
+        "QueryDisplayConfig: too many retries (display config keeps changing)".to_string(),
+    ))
 }
 
 /// Read the real HDR (Advanced Color) enabled state for the primary display.
@@ -727,7 +747,7 @@ pub fn get_hdr_state() -> bool {
 ///
 /// Uses `DisplayConfigSetDeviceInfo` — operates on the current user's
 /// interactive session and does NOT require administrator privileges.
-fn set_hdr_ccd(enabled: bool) -> anyhow::Result<()> {
+fn set_hdr_ccd(enabled: bool) -> HardwareResult<()> {
     #[cfg(windows)]
     unsafe {
         // SAFETY: Same as get_hdr_state — paths are valid CCD topology data.
@@ -755,7 +775,9 @@ fn set_hdr_ccd(enabled: bool) -> anyhow::Result<()> {
             }
         }
         if last_err != 0 {
-            anyhow::bail!("DisplayConfigSetDeviceInfo failed: {last_err:#x}");
+            return Err(HardwareError::Display(format!(
+                "DisplayConfigSetDeviceInfo failed: {last_err:#x}"
+            )));
         }
     }
     #[cfg(not(windows))]
@@ -828,15 +850,16 @@ pub fn get_intel_drrs() -> bool {
 /// Write Intel PSR2 DRRS state to the Arc driver registry key.
 /// Requires an elevated (admin) process — called from elevated.rs.
 /// Changes take effect after the display driver restarts or system reboots.
-pub fn set_intel_drrs(enabled: bool) -> Result<()> {
+pub fn set_intel_drrs(enabled: bool) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use winreg::{
             enums::{HKEY_LOCAL_MACHINE, KEY_WRITE},
             RegKey,
         };
-        let path = find_intel_arc_driver_key()
-            .ok_or_else(|| anyhow::anyhow!("Intel Arc driver registry key not found"))?;
+        let path = find_intel_arc_driver_key().ok_or_else(|| {
+            HardwareError::Display("Intel Arc driver registry key not found".to_string())
+        })?;
         let key = RegKey::predef(HKEY_LOCAL_MACHINE)
             .open_subkey_with_flags(&path, KEY_WRITE)
             .context("open Intel Arc driver key for write")?;
@@ -921,7 +944,7 @@ pub fn get_available_refresh_rates() -> Vec<u32> {
 /// The change is persisted to the registry (`CDS_UPDATEREGISTRY`) so it
 /// survives reboots.  Returns an error if the rate is not supported or if
 /// Windows rejects the mode change.
-pub fn set_refresh_rate(hz: u32) -> Result<()> {
+pub fn set_refresh_rate(hz: u32) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use windows::Win32::Graphics::Gdi::{
@@ -948,7 +971,9 @@ pub fn set_refresh_rate(hz: u32) -> Result<()> {
             )
             .as_bool()
             {
-                anyhow::bail!("EnumDisplaySettingsExW(CURRENT) failed");
+                return Err(HardwareError::Display(
+                    "EnumDisplaySettingsExW(CURRENT) failed".to_string(),
+                ));
             }
             mode.dmDisplayFrequency = hz;
             // Tell Windows we're only changing the refresh rate field.
@@ -964,7 +989,7 @@ pub fn set_refresh_rate(hz: u32) -> Result<()> {
             if result == DISP_CHANGE(0) {
                 Ok(())
             } else {
-                anyhow::bail!("ChangeDisplaySettingsExW failed ({result:?}); requested {hz} Hz may not be supported")
+                Err(HardwareError::Display(format!("ChangeDisplaySettingsExW failed ({result:?}); requested {hz} Hz may not be supported")))
             }
         }
     }
@@ -975,7 +1000,7 @@ pub fn set_refresh_rate(hz: u32) -> Result<()> {
     }
 }
 
-fn get_refresh_rate() -> Result<u32> {
+fn get_refresh_rate() -> HardwareResult<u32> {
     #[cfg(windows)]
     {
         use crate::hw::wmi_cache;
@@ -1000,7 +1025,7 @@ fn get_refresh_rate() -> Result<u32> {
     Ok(120)
 }
 
-fn get_ai_brightness_registry() -> Result<bool> {
+fn get_ai_brightness_registry() -> HardwareResult<bool> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -1054,7 +1079,7 @@ fn get_ai_brightness_registry() -> Result<bool> {
     }
 }
 
-fn persist_ai_brightness_registry(enabled: bool) -> Result<()> {
+fn persist_ai_brightness_registry(enabled: bool) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;

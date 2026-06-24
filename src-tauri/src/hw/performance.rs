@@ -1,3 +1,4 @@
+use crate::hw::errors::HardwareResult;
 use crate::state::PerformanceMode;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -40,7 +41,7 @@ pub struct PerformanceResult {
 
 /// Set the performance mode via WMI (HQWmiCommonInterface) + registry + Windows power overlay.
 /// Falls back to VHF, then registry-only if WMI is unavailable.
-pub fn set_performance_mode(mode: PerformanceMode) -> Result<PerformanceResult> {
+pub fn set_performance_mode(mode: PerformanceMode) -> HardwareResult<PerformanceResult> {
     // Always persist to registry
     persist_to_registry(mode)?;
 
@@ -91,7 +92,7 @@ pub fn set_performance_mode(mode: PerformanceMode) -> Result<PerformanceResult> 
 /// The previous approach (overlay first) meant that polling every 2 s would
 /// silently revert Silence → LongBattery, Smart → Balance, and
 /// SmartAcceleration → Turbo (because they share overlay GUIDs).
-pub fn get_performance_mode() -> Result<PerformanceMode> {
+pub fn get_performance_mode() -> HardwareResult<PerformanceMode> {
     #[cfg(windows)]
     {
         // Prefer our own registry — contains exact mode value (0–14).
@@ -387,7 +388,7 @@ pub fn set_windows_power_overlay(mode: PerformanceMode) {
 #[cfg(not(windows))]
 pub fn set_windows_power_overlay(_mode: PerformanceMode) {}
 
-fn persist_to_registry(mode: PerformanceMode) -> Result<()> {
+fn persist_to_registry(mode: PerformanceMode) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use windows::core::PCWSTR;

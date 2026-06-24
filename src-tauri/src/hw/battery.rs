@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use crate::hw::errors::HardwareResult;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
@@ -32,33 +33,79 @@ pub struct BatteryInfo {
     pub ac_input_power_mw: Option<i32>,
 }
 
+/// Cached static battery data that never changes at runtime.
+/// Populated once via `BATTERY_STATIC_DATA` and reused on all subsequent calls.
 #[cfg(windows)]
-pub fn get_battery_info() -> Result<BatteryInfo> {
+struct BatteryStaticData {
+    designed_capacity_mwh: u64,
+    full_capacity_mwh: u64,
+    manufacturer: String,
+    device_name: String,
+    cycle_count: u32,
+    temperature_raw: Option<u32>,
+}
+
+#[cfg(windows)]
+static BATTERY_STATIC_DATA: OnceLock<BatteryStaticData> = OnceLock::new();
+
+#[cfg(windows)]
+pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
     use crate::hw::wmi_cache;
     use std::collections::HashMap;
 
     let started = Instant::now();
     log::debug!(target: "hw::battery", "get_battery_info: start");
 
-    wmi_cache::with_wmi(|wmi| {
-        // BatteryStatus
+    // Cache static battery data once (never changes at runtime).
+    let battery_static = BATTERY_STATIC_DATA.get_or_init(|| {
+        wmi_cache::with_wmi(|wmi| {
+            let static_data: Vec<HashMap<String, wmi::Variant>> = wmi
+                .raw_query("SELECT * FROM BatteryStaticData")
+                .context("BatteryStaticData query")?;
+            let full_cap_data: Vec<HashMap<String, wmi::Variant>> = wmi
+                .raw_query("SELECT * FROM BatteryFullChargedCapacity")
+                .context("BatteryFullChargedCapacity query")?;
+
+            let statics = static_data.into_iter().next().unwrap_or_default();
+            let full_cap = full_cap_data.into_iter().next().unwrap_or_default();
+
+            Ok(BatteryStaticData {
+                designed_capacity_mwh: match statics.get("DesignedCapacity") {
+                    Some(wmi::Variant::UI4(v)) => *v as u64,
+                    _ => 68224,
+                },
+                full_capacity_mwh: match full_cap.get("FullChargedCapacity") {
+                    Some(wmi::Variant::UI4(v)) => *v as u64,
+                    _ => 68224,
+                },
+                manufacturer: match statics.get("ManufactureName") {
+                    Some(wmi::Variant::String(s)) => s.trim().to_string(),
+                    _ => "COSMX".to_string(),
+                },
+                device_name: match statics.get("DeviceName") {
+                    Some(wmi::Variant::String(s)) => s.trim().to_string(),
+                    _ => "BX70".to_string(),
+                },
+                cycle_count: match statics.get("CycleCount") {
+                    Some(wmi::Variant::UI4(v)) => *v,
+                    _ => 0,
+                },
+                temperature_raw: match statics.get("Temperature") {
+                    Some(wmi::Variant::UI4(v)) => Some(*v),
+                    _ => None,
+                },
+            })
+        })
+        .expect("static battery data init failed")
+    });
+
+    let info = wmi_cache::with_wmi(|wmi| {
+        // BatteryStatus (dynamic data only)
         let statuses: Vec<HashMap<String, wmi::Variant>> = wmi
             .raw_query("SELECT * FROM BatteryStatus")
             .context("BatteryStatus query")?;
 
-        // BatteryStaticData
-        let static_data: Vec<HashMap<String, wmi::Variant>> = wmi
-            .raw_query("SELECT * FROM BatteryStaticData")
-            .context("BatteryStaticData query")?;
-
-        // BatteryFullChargedCapacity
-        let full_cap_data: Vec<HashMap<String, wmi::Variant>> = wmi
-            .raw_query("SELECT * FROM BatteryFullChargedCapacity")
-            .context("BatteryFullChargedCapacity query")?;
-
         let status = statuses.into_iter().next().unwrap_or_default();
-        let statics = static_data.into_iter().next().unwrap_or_default();
-        let full_cap = full_cap_data.into_iter().next().unwrap_or_default();
 
         let remaining_capacity = match status.get("RemainingCapacity") {
             Some(wmi::Variant::UI4(v)) => *v,
@@ -88,33 +135,15 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
             voltage
         );
 
-        // Note: WMI DesignedCapacity / FullChargedCapacity / RemainingCapacity are in mWh, not mAh.
-        let designed_mah = match statics.get("DesignedCapacity") {
-            Some(wmi::Variant::UI4(v)) => *v,
-            _ => 68224,
-        };
-        let manufacturer = match statics.get("ManufactureName") {
-            Some(wmi::Variant::String(s)) => s.trim().to_string(),
-            _ => "COSMX".to_string(),
-        };
-        let device_name = match statics.get("DeviceName") {
-            Some(wmi::Variant::String(s)) => s.trim().to_string(),
-            _ => "BX70".to_string(),
-        };
-        let cycle_count = match statics.get("CycleCount") {
-            Some(wmi::Variant::UI4(v)) => *v,
-            _ => 0,
-        };
-        let temp_raw = match statics.get("Temperature") {
-            Some(wmi::Variant::UI4(v)) => Some(*v),
-            _ => None,
-        };
-        let temperature_celsius = temp_raw.map(|t| (t as f64 / 10.0) - 273.15);
-
-        let full_cap_mah = match full_cap.get("FullChargedCapacity") {
-            Some(wmi::Variant::UI4(v)) => *v,
-            _ => designed_mah,
-        };
+        // Static data from cached BatteryStaticData
+        let designed_mah = battery_static.designed_capacity_mwh as u32;
+        let manufacturer = battery_static.manufacturer.clone();
+        let device_name = battery_static.device_name.clone();
+        let cycle_count = battery_static.cycle_count;
+        let temperature_celsius = battery_static
+            .temperature_raw
+            .map(|t| (t as f64 / 10.0) - 273.15);
+        let full_cap_mah = battery_static.full_capacity_mwh as u32;
 
         let level = if full_cap_mah > 0 {
             ((remaining_capacity as f64 / full_cap_mah as f64) * 100.0)
@@ -190,7 +219,8 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
             },
             ac_input_power_mw,
         })
-    })
+    });
+    info
 }
 
 #[cfg(windows)]
@@ -246,7 +276,7 @@ fn clear_ac_power_probe_cache() {
 }
 
 #[cfg(not(windows))]
-pub fn get_battery_info() -> Result<BatteryInfo> {
+pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
     Ok(BatteryInfo {
         level: 80,
         is_charging: false,

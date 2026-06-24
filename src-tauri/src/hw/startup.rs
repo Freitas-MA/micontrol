@@ -1,9 +1,10 @@
-use anyhow::{Context, Result};
+use crate::hw::errors::HardwareResult;
+use anyhow::Context;
 
 const STARTUP_REG_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
 const STARTUP_REG_VALUE: &str = "MiControl";
 
-pub fn get_autostart() -> Result<bool> {
+pub fn get_autostart() -> HardwareResult<bool> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -60,7 +61,7 @@ pub fn get_autostart() -> Result<bool> {
     }
 }
 
-pub fn set_autostart(enabled: bool) -> Result<()> {
+pub fn set_autostart(enabled: bool) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;

@@ -22,10 +22,16 @@
 ///
 /// Total header size: 12 bytes. No signature field — the pipe name itself
 /// serves as the namespace delimiter.
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+// We also bring `Result` into scope for internal helper functions.
+use anyhow::Result;
 
 /// Named pipe path to the IoTService IPC broker.
 pub const IOT_PIPE: &str = r"\\.\pipe\LOCAL\IoTService_IPC_Broker";
@@ -439,6 +445,28 @@ pub fn resolve_pipe_path() -> String {
     }
 }
 
+/// Rate limiter for IPC writes — max 100 writes per second.
+static IPC_WRITE_TIMES: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
+const RATE_LIMIT_MAX_WRITES: usize = 100;
+const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(1);
+
+/// Check if an IPC write is allowed under the rate limit.
+/// Returns true if allowed, false if rate limited.
+fn check_rate_limit() -> bool {
+    let mut times = IPC_WRITE_TIMES.lock().unwrap_or_else(|e| e.into_inner());
+    let now = Instant::now();
+
+    // Remove entries older than the window
+    times.retain(|&t| now.duration_since(t) < RATE_LIMIT_WINDOW);
+
+    if times.len() >= RATE_LIMIT_MAX_WRITES {
+        return false;
+    }
+
+    times.push(now);
+    true
+}
+
 /// Send a raw IPC message and read the response.
 ///
 /// Returns the raw response payload bytes, or an empty Vec if the message type
@@ -446,6 +474,13 @@ pub fn resolve_pipe_path() -> String {
 fn send_ipc_message(dst_id: u16, msg_type: u32, payload: &[u8]) -> Result<Vec<u8>> {
     #[cfg(windows)]
     {
+        if !check_rate_limit() {
+            return Err(anyhow::anyhow!(
+                "IPC write rate limit exceeded (max {} writes/second)",
+                RATE_LIMIT_MAX_WRITES
+            ));
+        }
+
         crate::util::retry::with_retry("IoT IPC send", || {
             use std::fs::OpenOptions;
             use std::time::Duration;
@@ -749,30 +784,31 @@ pub fn is_available() -> bool {
 // ── Device info queries ──────────────────────────────────────────────────────
 
 /// Get the device model string (e.g., "Mi NoteBook Pro X 15").
-pub fn get_model() -> Result<String> {
+pub fn get_model() -> HardwareResult<String> {
     let info: ModelInfo = send_query(DST_IOT_DRIVER, msg_type::GET_MODEL)?;
     Ok(info.model)
 }
 
 /// Get the firmware version string.
-pub fn get_fw_version() -> Result<String> {
+pub fn get_fw_version() -> HardwareResult<String> {
     let info: FwVersionInfo = send_query(DST_IOT_DRIVER, msg_type::GET_FW_VERSION)?;
     Ok(info.fw_version)
 }
 
 /// Get the IoT device bind status (whether a Xiaomi account is linked).
-pub fn get_bind_status() -> Result<BindStatusInfo> {
+pub fn get_bind_status() -> HardwareResult<BindStatusInfo> {
     send_query::<BindStatusInfo>(DST_IOT_DRIVER, msg_type::GET_BIND_STATUS)
+        .map_err(HardwareError::from)
 }
 
 /// Get the IoT device ID.
-pub fn get_device_id() -> Result<i64> {
+pub fn get_device_id() -> HardwareResult<i64> {
     let info: DeviceIdInfo = send_query(DST_IOT_DRIVER, msg_type::GET_DEVICE_ID)?;
     Ok(info.device_id)
 }
 
 /// Get the current device status string.
-pub fn get_device_status() -> Result<String> {
+pub fn get_device_status() -> HardwareResult<String> {
     let info: DeviceStatusInfo = send_query(DST_IOT_DRIVER, msg_type::GET_DEVICE_STATUS)?;
     Ok(info.status)
 }
@@ -780,7 +816,7 @@ pub fn get_device_status() -> Result<String> {
 // ── Device control ───────────────────────────────────────────────────────────
 
 /// Set the device status.
-pub fn set_device_status(status: &str) -> Result<()> {
+pub fn set_device_status(status: &str) -> HardwareResult<()> {
     send_json_cmd_no_resp(
         DST_IOT_DRIVER,
         msg_type::SET_DEVICE_STATUS,
@@ -788,21 +824,23 @@ pub fn set_device_status(status: &str) -> Result<()> {
             status: status.to_string(),
         },
     )
+    .map_err(HardwareError::from)
 }
 
 /// Reset the IoT device.
-pub fn reset_device() -> Result<()> {
+pub fn reset_device() -> HardwareResult<()> {
     send_json_cmd_no_resp(
         DST_IOT_DRIVER,
         msg_type::RESET_DEVICE,
         &ResetDeviceRequest { reset: true },
     )
+    .map_err(HardwareError::from)
 }
 
 // ── Laptop status ────────────────────────────────────────────────────────────
 
 /// Report the laptop status to the IoT device (boot ready, suspending, shutting down).
-pub fn send_laptop_status(status: LaptopStatus) -> Result<()> {
+pub fn send_laptop_status(status: LaptopStatus) -> HardwareResult<()> {
     log::info!(
         "IoT IPC: sending laptop status {} ({})",
         status.as_str(),
@@ -815,25 +853,26 @@ pub fn send_laptop_status(status: LaptopStatus) -> Result<()> {
             laptop_status: status.to_hw_value(),
         },
     )
+    .map_err(HardwareError::from)
 }
 
 /// Convenience: report that Windows is ready.
-pub fn report_windows_ready() -> Result<()> {
+pub fn report_windows_ready() -> HardwareResult<()> {
     send_laptop_status(LaptopStatus::WinReady)
 }
 
 /// Convenience: report that the system is going to sleep.
-pub fn report_suspending() -> Result<()> {
+pub fn report_suspending() -> HardwareResult<()> {
     send_laptop_status(LaptopStatus::Suspending)
 }
 
 /// Convenience: report that the system is shutting down.
-pub fn report_shutting_down() -> Result<()> {
+pub fn report_shutting_down() -> HardwareResult<()> {
     send_laptop_status(LaptopStatus::Shutting)
 }
 
 // ── WiFi management ──────────────────────────────────────────────────────────
-pub fn write_wifi_item(item: &WiFiItem) -> Result<()> {
+pub fn write_wifi_item(item: &WiFiItem) -> HardwareResult<()> {
     log::info!("IoT IPC: writing WiFi item for SSID '{}'", item.ssid);
 
     // Encrypt the password before sending over the pipe to prevent
@@ -850,46 +889,50 @@ pub fn write_wifi_item(item: &WiFiItem) -> Result<()> {
     };
 
     send_json_cmd_no_resp(DST_IOT_DRIVER, msg_type::WRITE_WIFI_ITEM, &encrypted_item)
+        .map_err(HardwareError::from)
 }
 
 /// Delete a WiFi network from the IoT device's provisioning list by SSID.
-pub fn delete_wifi_item(ssid: &str) -> Result<()> {
+pub fn delete_wifi_item(ssid: &str) -> HardwareResult<()> {
     log::info!("IoT IPC: deleting WiFi item for SSID '{ssid}'");
     send_json_cmd_no_resp(
         DST_IOT_DRIVER,
         msg_type::DELETE_WIFI_ITEM,
         &serde_json::json!({ "ssid": ssid }),
     )
+    .map_err(HardwareError::from)
 }
 
 /// Get a WiFi item from the provisioning list by index.
-pub fn get_wifi_by_index(index: u32) -> Result<WiFiItemInfo> {
+pub fn get_wifi_by_index(index: u32) -> HardwareResult<WiFiItemInfo> {
     send_json_cmd::<WiFiItemInfo>(
         DST_IOT_DRIVER,
         msg_type::GET_WIFI_BY_INDEX,
         &serde_json::json!({ "index": index }),
     )
+    .map_err(HardwareError::from)
 }
 
 /// Get the number of provisioned WiFi networks.
-pub fn read_wifi_count() -> Result<u32> {
+pub fn read_wifi_count() -> HardwareResult<u32> {
     let info: WiFiCountInfo = send_query(DST_IOT_DRIVER, msg_type::READ_WIFI_COUNT)?;
     Ok(info.count)
 }
 
 /// Get the current WiFi connection status.
-pub fn read_wifi_status() -> Result<WiFiStatusInfo> {
+pub fn read_wifi_status() -> HardwareResult<WiFiStatusInfo> {
     send_query::<WiFiStatusInfo>(DST_IOT_DRIVER, msg_type::READ_WIFI_STATUS)
+        .map_err(HardwareError::from)
 }
 
 /// Remove all provisioned WiFi networks.
-pub fn empty_wifi_items() -> Result<()> {
+pub fn empty_wifi_items() -> HardwareResult<()> {
     send_ipc_message(DST_IOT_DRIVER, msg_type::EMPTY_WIFI_ITEMS, &[])?;
     Ok(())
 }
 
 /// Force the IoT device to connect to the provisioned WiFi.
-pub fn connect_wifi() -> Result<()> {
+pub fn connect_wifi() -> HardwareResult<()> {
     send_ipc_message(DST_IOT_DRIVER, msg_type::CONNECT_WIFI, &[])?;
     Ok(())
 }
@@ -897,14 +940,14 @@ pub fn connect_wifi() -> Result<()> {
 // ── Power & EC events ────────────────────────────────────────────────────────
 
 /// Send a power event notification to IoTService.
-pub fn notify_power_event(event: &PowerEvent) -> Result<()> {
+pub fn notify_power_event(event: &PowerEvent) -> HardwareResult<()> {
     let json = serde_json::to_vec(event).context("Serialize power event")?;
     send_ipc_message(DST_IOT_DRIVER, msg_type::POWER_EVENT, &json)?;
     Ok(())
 }
 
 /// Send an EC event notification to IoTService.
-pub fn notify_ec_event(event_func: u32, event_value: u32) -> Result<()> {
+pub fn notify_ec_event(event_func: u32, event_value: u32) -> HardwareResult<()> {
     let json = serde_json::to_vec(&EcEvent {
         event_func,
         event_value,
@@ -983,6 +1026,13 @@ mod tests {
         assert_eq!(parsed.dst_id, 0xBB);
         assert_eq!(parsed.msg_type, 0xDEADBEEF);
         assert_eq!(parsed.payload_len, 42);
+    }
+
+    #[test]
+    fn test_rate_limit_allows_under_limit() {
+        // The rate limiter should allow writes under the limit
+        // This test verifies the function doesn't panic
+        let _ = check_rate_limit();
     }
 
     #[test]

@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -114,7 +115,7 @@ pub fn set_app_handle(h: tauri::AppHandle) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-pub fn get_touchpad_info() -> Result<TouchpadInfo> {
+pub fn get_touchpad_info() -> HardwareResult<TouchpadInfo> {
     let info = read_touchpad_registry().unwrap_or(TouchpadInfo {
         sensitivity: TouchpadSensitivity::Medium,
         haptics_enabled: true,
@@ -135,7 +136,7 @@ pub fn get_touchpad_info() -> Result<TouchpadInfo> {
     Ok(info)
 }
 
-pub fn set_touchpad_sensitivity(sensitivity: TouchpadSensitivity) -> Result<()> {
+pub fn set_touchpad_sensitivity(sensitivity: TouchpadSensitivity) -> HardwareResult<()> {
     let reg_val = match sensitivity {
         TouchpadSensitivity::Low => 1,
         TouchpadSensitivity::Medium => 2,
@@ -149,7 +150,7 @@ pub fn set_touchpad_sensitivity(sensitivity: TouchpadSensitivity) -> Result<()> 
     Ok(())
 }
 
-pub fn set_touchpad_haptics(enabled: bool) -> Result<()> {
+pub fn set_touchpad_haptics(enabled: bool) -> HardwareResult<()> {
     persist_reg_dword(TP_REG_HAPTICS, if enabled { 1 } else { 0 })?;
     #[cfg(windows)]
     {
@@ -163,7 +164,7 @@ pub fn set_touchpad_haptics(enabled: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn set_touchpad_haptics_intensity(intensity: HapticsIntensity) -> Result<()> {
+pub fn set_touchpad_haptics_intensity(intensity: HapticsIntensity) -> HardwareResult<()> {
     persist_reg_dword(
         TP_REG_HAPTICS_INTENSITY,
         match intensity {
@@ -184,7 +185,7 @@ pub fn set_touchpad_haptics_intensity(intensity: HapticsIntensity) -> Result<()>
     Ok(())
 }
 
-pub fn set_touchpad_gesture_screenshot(enabled: bool) -> Result<()> {
+pub fn set_touchpad_gesture_screenshot(enabled: bool) -> HardwareResult<()> {
     #[cfg(windows)]
     GESTURE_SCREENSHOT_ENABLED.store(enabled, Ordering::Relaxed);
     persist_reg_dword(TP_REG_GESTURE_SCREENSHOT, if enabled { 1 } else { 0 })?;
@@ -194,11 +195,11 @@ pub fn set_touchpad_gesture_screenshot(enabled: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn set_touchpad_repress(enabled: bool) -> Result<()> {
+pub fn set_touchpad_repress(enabled: bool) -> HardwareResult<()> {
     persist_reg_dword(TP_REG_TRACKPAD_REPRESS, if enabled { 1 } else { 0 })
 }
 
-pub fn set_touchpad_edge_slide(enabled: bool) -> Result<()> {
+pub fn set_touchpad_edge_slide(enabled: bool) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         EDGE_SLIDE_ENABLED.store(enabled, Ordering::Relaxed);
@@ -232,7 +233,7 @@ pub fn start_gesture_listener() {
 // ─── Registry persistence ─────────────────────────────────────────────────────
 
 /// Write a single DWORD value to `HKLM\SOFTWARE\MI\Touchpad`.
-fn persist_reg_dword(value_name: &str, value: u32) -> Result<()> {
+fn persist_reg_dword(value_name: &str, value: u32) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -282,7 +283,7 @@ fn persist_reg_dword(value_name: &str, value: u32) -> Result<()> {
     Ok(())
 }
 
-fn read_touchpad_registry() -> Result<TouchpadInfo> {
+fn read_touchpad_registry() -> HardwareResult<TouchpadInfo> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -470,7 +471,7 @@ pub fn close_haptics_handle() {
 }
 
 #[cfg(windows)]
-fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Result<()> {
+fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> HardwareResult<()> {
     use windows::Win32::Devices::HumanInterfaceDevice::{
         HidD_FreePreparsedData, HidD_GetPreparsedData, HidD_SetFeature, HidP_GetCaps, HIDP_CAPS,
         PHIDP_PREPARSED_DATA,
@@ -538,7 +539,9 @@ fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Resul
                 // code; it always succeeds and requires no special state.
                 windows::Win32::Foundation::GetLastError()
             };
-            anyhow::bail!("HidD_SetFeature BLTP7853 (retry): {err:?}")
+            Err(HardwareError::Touchpad(format!(
+                "HidD_SetFeature BLTP7853 (retry): {err:?}"
+            )))
         }
     }
 }

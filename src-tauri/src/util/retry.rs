@@ -2,6 +2,11 @@
 
 /// Execute a fallible operation with one retry after a short delay.
 /// Logs when a retry is used.
+///
+/// # Blocking note
+/// This function uses `std::thread::sleep`, which is safe because all callers
+/// run inside `tokio::task::spawn_blocking` (blocking thread pool). It is NOT
+/// safe to call from an async context on a Tokio worker thread.
 pub fn with_retry<T, E, F>(operation_name: &str, mut f: F) -> Result<T, E>
 where
     F: FnMut() -> Result<T, E>,
@@ -15,6 +20,8 @@ where
                 operation_name,
                 first_err
             );
+            // thread::sleep is acceptable here — all callers are within
+            // spawn_blocking (blocking thread pool), not on Tokio workers.
             std::thread::sleep(std::time::Duration::from_millis(100));
             match f() {
                 Ok(result) => {

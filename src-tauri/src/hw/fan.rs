@@ -398,15 +398,16 @@ where
         let mut handles = vec![std::ptr::null_mut::<std::ffi::c_void>(); count as usize];
         let rc = ctl_enum_fans(device, &mut count, handles.as_mut_ptr());
         if rc != 0 {
-            return Err(HardwareError::Display(format!("ctlEnumFans failed: {rc:#x}")).into());
+            return Err(HardwareError::Display(format!(
+                "ctlEnumFans failed: {rc:#x}"
+            )));
         }
 
         for &fan in &handles[..count as usize] {
             f(fan, lib)?;
         }
         Ok(count as usize)
-    })
-    .map_err(|e: anyhow::Error| HardwareError::from(e))?;
+    })?;
     Ok(count)
 }
 

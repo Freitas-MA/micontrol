@@ -33,7 +33,7 @@ pub async fn get_battery_info() -> Result<BatteryInfo, ErrorResponse> {
     let result = tokio::task::spawn_blocking(hw_get_battery)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()));
+        .map_err(ErrorResponse::from);
     match &result {
         Ok(info) => log::debug!(
             target: "cmd::system",
@@ -60,7 +60,7 @@ pub async fn get_display_info() -> Result<DisplayInfo, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_display)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -85,7 +85,7 @@ pub async fn set_hdr(enabled: bool) -> Result<(), ErrorResponse> {
     tokio::task::spawn_blocking(move || hw_set_hdr(enabled))
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -125,7 +125,7 @@ pub async fn get_fan_info() -> Result<FanInfo, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_fan)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -146,7 +146,7 @@ pub async fn get_touchpad_info() -> Result<TouchpadInfo, ErrorResponse> {
     let result = tokio::task::spawn_blocking(hw_get_touchpad)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()));
+        .map_err(ErrorResponse::from);
     match &result {
         Ok(info) => log::debug!(
             target: "cmd::system",
@@ -231,7 +231,7 @@ pub async fn get_system_info() -> Result<SystemInfo, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_sysinfo)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -274,7 +274,7 @@ pub async fn get_autostart() -> Result<bool, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_autostart)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -282,7 +282,7 @@ pub async fn set_autostart(enabled: bool) -> Result<(), ErrorResponse> {
     tokio::task::spawn_blocking(move || hw_set_autostart(enabled))
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -290,7 +290,7 @@ pub async fn get_update_status() -> Result<UpdateStatus, ErrorResponse> {
     tokio::task::spawn_blocking(hw_get_update_status)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -298,7 +298,7 @@ pub async fn trigger_driver_scan() -> Result<String, ErrorResponse> {
     tokio::task::spawn_blocking(hw_trigger_scan)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
-        .map_err(|e| ErrorResponse::from(e.to_string()))
+        .map_err(ErrorResponse::from)
 }
 
 // ── Hardware Discovery (Phase 10) ────────────────────────────────────────────
@@ -333,7 +333,7 @@ pub async fn install_driver(driver_name: String) -> Result<String, ErrorResponse
 /// plug/unplug the charger and call this command to see which bytes change.
 #[tauri::command]
 pub async fn debug_ecram_dump() -> Result<String, ErrorResponse> {
-    crate::hw::ecram::debug_ecram_hex().map_err(|e| ErrorResponse::from(e.to_string()))
+    crate::hw::ecram::debug_ecram_hex().map_err(ErrorResponse::from)
 }
 
 // ── Batched hardware state (S4-002) ──────────────────────────────────────────

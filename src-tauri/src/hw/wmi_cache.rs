@@ -8,7 +8,7 @@
 //! - `ROOT\CIMV2` — system info, display, discovery
 //! - `ROOT\WMI` — battery, brightness
 
-use anyhow::Context;
+use crate::hw::errors::{HardwareError, HardwareResult};
 use std::cell::RefCell;
 use wmi::{COMLibrary, WMIConnection};
 
@@ -34,12 +34,26 @@ impl WmiThreadCache {
         // COM is reference-counted per thread, so creating two COMLibrary
         // instances on the same thread is safe — CoInitializeEx is called
         // twice and CoUninitialize is called twice on drop.
-        let com_cimv2 = COMLibrary::new().context("WMI cache: COM init (cimv2)")?;
-        let cimv2 = WMIConnection::with_namespace_path(NS_CIMV2, com_cimv2)
-            .context("WMI cache: connect cimv2")?;
-        let com_wmi = COMLibrary::new().context("WMI cache: COM init (wmi)")?;
-        let wmi = WMIConnection::with_namespace_path(NS_WMI, com_wmi)
-            .context("WMI cache: connect root\\wmi")?;
+        let com_cimv2 = COMLibrary::new().map_err(|e| HardwareError::WmiQuery {
+            query: "COMLibrary::new cimv2".into(),
+            source: Box::new(e),
+        })?;
+        let cimv2 = WMIConnection::with_namespace_path(NS_CIMV2, com_cimv2).map_err(|e| {
+            HardwareError::WmiQuery {
+                query: format!("WMIConnection cimv2 namespace={NS_CIMV2}"),
+                source: Box::new(e),
+            }
+        })?;
+        let com_wmi = COMLibrary::new().map_err(|e| HardwareError::WmiQuery {
+            query: "COMLibrary::new wmi".into(),
+            source: Box::new(e),
+        })?;
+        let wmi = WMIConnection::with_namespace_path(NS_WMI, com_wmi).map_err(|e| {
+            HardwareError::WmiQuery {
+                query: format!("WMIConnection wmi namespace={NS_WMI}"),
+                source: Box::new(e),
+            }
+        })?;
         Ok(Self { cimv2, wmi })
     }
 }
@@ -47,58 +61,82 @@ impl WmiThreadCache {
 /// Execute a closure with the cached `ROOT\CIMV2` connection, with one retry.
 ///
 /// On first call (or after [`invalidate`]), initialises COM and creates the
-/// connection. If the closure returns an error, the cache is invalidated so
-/// the next call will recreate the connection transparently.
-pub fn with_cimv2<F, T>(f: F) -> anyhow::Result<T>
+/// connection. If the closure returns an error, the cache is ONLY invalidated
+/// for connection-level errors (COM init failure, namespace binding failure),
+/// NOT for transient query errors.
+pub fn with_cimv2<F, T>(f: F) -> HardwareResult<T>
 where
     F: Fn(&WMIConnection) -> anyhow::Result<T>,
 {
-    crate::util::retry::with_retry("WMI cimv2 query", || {
+    let result: anyhow::Result<T> = crate::util::retry::with_retry("WMI cimv2 query", || {
         WMI_CACHE.with(|cell| {
             let mut cache_ref = cell.borrow_mut();
             if cache_ref.is_none() {
                 *cache_ref = Some(WmiThreadCache::init()?);
             }
-            let result = {
-                let c = cache_ref.as_ref().unwrap();
-                f(&c.cimv2)
-            };
-            if result.is_err() {
-                log::info!("WMI cache: cimv2 query failed, invalidating connection");
-                *cache_ref = None;
-            }
-            result
+            let c = cache_ref.as_ref().unwrap();
+            f(&c.cimv2)
         })
-    })
+    });
+    match &result {
+        Err(e) if is_connection_error(e) => {
+            log::info!("WMI cache: cimv2 connection error, invalidating: {e}");
+            WMI_CACHE.with(|cell| {
+                *cell.borrow_mut() = None;
+            });
+        }
+        Err(e) => {
+            log::debug!("WMI cache: cimv2 transient query error (cache preserved): {e}");
+        }
+        Ok(_) => {}
+    }
+    result.map_err(HardwareError::from)
 }
 
 /// Execute a closure with the cached `ROOT\WMI` connection, with one retry.
 ///
 /// Same semantics as [`with_cimv2`].
-pub fn with_wmi<F, T>(f: F) -> anyhow::Result<T>
+pub fn with_wmi<F, T>(f: F) -> HardwareResult<T>
 where
     F: Fn(&WMIConnection) -> anyhow::Result<T>,
 {
-    crate::util::retry::with_retry("WMI wmi query", || {
+    let result: anyhow::Result<T> = crate::util::retry::with_retry("WMI wmi query", || {
         WMI_CACHE.with(|cell| {
             let mut cache_ref = cell.borrow_mut();
             if cache_ref.is_none() {
                 *cache_ref = Some(WmiThreadCache::init()?);
             }
-            let result = {
-                let c = cache_ref.as_ref().unwrap();
-                f(&c.wmi)
-            };
-            if result.is_err() {
-                log::info!("WMI cache: wmi query failed, invalidating connection");
-                *cache_ref = None;
-            }
-            result
+            let c = cache_ref.as_ref().unwrap();
+            f(&c.wmi)
         })
-    })
+    });
+    match &result {
+        Err(e) if is_connection_error(e) => {
+            log::info!("WMI cache: wmi connection error, invalidating: {e}");
+            WMI_CACHE.with(|cell| {
+                *cell.borrow_mut() = None;
+            });
+        }
+        Err(e) => {
+            log::debug!("WMI cache: wmi transient query error (cache preserved): {e}");
+        }
+        Ok(_) => {}
+    }
+    result.map_err(HardwareError::from)
 }
 
-#[allow(dead_code)]
+/// Returns `true` if the error message indicates a connection-level failure
+/// (COM init, namespace binding, or WMI infrastructure) vs. a transient
+/// query error (class not found, invalid query syntax).
+fn is_connection_error(e: &anyhow::Error) -> bool {
+    let msg = e.to_string().to_lowercase();
+    msg.contains("com")
+        || msg.contains("connection")
+        || msg.contains("binding")
+        || msg.contains("namespace")
+}
+
+#[expect(dead_code)]
 /// Invalidate the cached connections on the current thread.
 ///
 /// The next call to [`with_cimv2`] or [`with_wmi`] will recreate them.

@@ -23,7 +23,8 @@
 ///
 /// AC adapter wattage (ADPW) is at physical address 0xFE0B0381 (ERAM + 0x81).
 /// Reading requires satisfying the IoTDriver security check (process name = IoTService.exe).
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use std::sync::OnceLock;
 
 /// Fallback physical base address of the ACPI ERAM region (SystemMemory at 0xFE0B0300, size 0x100).
@@ -176,13 +177,13 @@ fn discover_from_wmi() -> Option<u32> {
 /// EC I/O regions on x86 are typically in the range 0x60–0xFF or 0x800–0xFFFF
 /// for extended regions. Physical memory-mapped EC regions (like the known
 /// 0xFE0B0300) are validated against a reasonable MMIO range.
-fn validate_eram_address(addr: u64) -> Result<()> {
+fn validate_eram_address(addr: u64) -> HardwareResult<()> {
     // Two valid ranges: I/O space (0x60–0xFFFF) and MMIO high (> 0x80000000)
     let valid = (0x60..=0xFFFF).contains(&addr) || (0x8000_0000..=0xFFFF_FFFF).contains(&addr);
     if !valid {
-        anyhow::bail!(
+        return Err(HardwareError::Ecram(format!(
             "ERAM address 0x{addr:08X} is out of valid range (expected I/O 0x60–0xFFFF or MMIO 0x80000000–0xFFFFFFFF)"
-        );
+        )));
     }
     Ok(())
 }
@@ -195,7 +196,7 @@ fn validate_eram_address(addr: u64) -> Result<()> {
 /// # Errors
 /// Returns an error if the device cannot be opened (driver not loaded,
 /// insufficient privileges) or if the IOCTL fails.
-pub fn read_ecram(phys_addr: u64, byte_count: usize) -> Result<Vec<u8>> {
+pub fn read_ecram(phys_addr: u64, byte_count: usize) -> HardwareResult<Vec<u8>> {
     assert!(
         byte_count <= 0x100,
         "byte_count must be ≤ 0x100 (driver limit)"
@@ -205,13 +206,15 @@ pub fn read_ecram(phys_addr: u64, byte_count: usize) -> Result<Vec<u8>> {
     {
         let device_path = find_iot_device_path()
             .context("IoT driver device not found (is IoTDriver.sys loaded?)")?;
-        read_ecram_inner(&device_path, phys_addr, byte_count)
+        Ok(read_ecram_inner(&device_path, phys_addr, byte_count)?)
     }
 
     #[cfg(not(windows))]
     {
         let _ = (phys_addr, byte_count);
-        anyhow::bail!("ECRAM read is only supported on Windows")
+        return Err(HardwareError::Ecram(format!(
+            "ECRAM read is only supported on Windows"
+        )));
     }
 }
 
@@ -235,7 +238,7 @@ pub fn try_get_ac_power_mw() -> Option<i32> {
 /// Dumps both the ACPI ERAM (0xFE0B0300, 256 bytes, includes ADPW at +0x81)
 /// and the IoTDevice state block (0xFE0B0F08, 0x78 bytes).
 /// Format: "0xADDR: XX XX XX XX ..."
-pub fn debug_ecram_hex() -> Result<String> {
+pub fn debug_ecram_hex() -> HardwareResult<String> {
     let eram_base = get_eram_base();
     let mut out = String::new();
 
@@ -275,7 +278,7 @@ pub fn debug_ecram_hex() -> Result<String> {
 // ── Windows implementation ────────────────────────────────────────────────────
 
 #[cfg(windows)]
-fn find_iot_device_path() -> Result<String> {
+fn find_iot_device_path() -> anyhow::Result<String> {
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
         SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces, SetupDiGetClassDevsW,
         SetupDiGetDeviceInterfaceDetailW, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT,
@@ -347,7 +350,11 @@ fn find_iot_device_path() -> Result<String> {
 }
 
 #[cfg(windows)]
-fn read_ecram_inner(device_path: &str, phys_addr: u64, byte_count: usize) -> Result<Vec<u8>> {
+fn read_ecram_inner(
+    device_path: &str,
+    phys_addr: u64,
+    byte_count: usize,
+) -> anyhow::Result<Vec<u8>> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows::{
@@ -430,7 +437,7 @@ fn read_ecram_inner(device_path: &str, phys_addr: u64, byte_count: usize) -> Res
 ///
 /// If the driver returned fewer bytes than requested, the output buffer may
 /// contain stale or uninitialized data — reject rather than returning garbage.
-fn check_bytes_returned(bytes_returned: u32, expected_size: usize) -> Result<()> {
+fn check_bytes_returned(bytes_returned: u32, expected_size: usize) -> HardwareResult<()> {
     if (bytes_returned as usize) >= expected_size {
         return Ok(());
     }
@@ -438,14 +445,16 @@ fn check_bytes_returned(bytes_returned: u32, expected_size: usize) -> Result<()>
         target: "hw::ecram",
         "Short read: expected {expected_size} bytes, got {bytes_returned} — rejecting",
     );
-    anyhow::bail!("EC RAM short read: expected {expected_size}, got {bytes_returned}");
+    Err(HardwareError::Ecram(format!(
+        "EC RAM short read: expected {expected_size}, got {bytes_returned}",
+    )))
 }
 
 /// Validate that `index` is a valid byte offset within the ACPI ERAM region.
 ///
 /// Returns an error if `index > ECRAM_MAX_INDEX`.
 #[allow(dead_code)]
-fn validate_eram_index(index: usize) -> Result<()> {
+fn validate_eram_index(index: usize) -> HardwareResult<()> {
     if index <= ECRAM_MAX_INDEX {
         return Ok(());
     }
@@ -453,11 +462,13 @@ fn validate_eram_index(index: usize) -> Result<()> {
         target: "hw::ecram",
         "ERAM index 0x{index:X} exceeds maximum 0x{ECRAM_MAX_INDEX:X} — rejecting",
     );
-    anyhow::bail!("ERAM index 0x{index:X} out of range (max 0x{ECRAM_MAX_INDEX:X})",)
+    Err(HardwareError::Ecram(format!(
+        "ERAM index 0x{index:X} out of range (max 0x{ECRAM_MAX_INDEX:X})",
+    )))
 }
 
 #[cfg(windows)]
-fn write_ecram_inner(device_path: &str, phys_addr: u64, data: &[u8]) -> Result<()> {
+fn write_ecram_inner(device_path: &str, phys_addr: u64, data: &[u8]) -> anyhow::Result<()> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows::{
@@ -547,7 +558,7 @@ const RAW_ECRAM_WRITE_ENABLE_ENV: &str = "MICONTROL_ENABLE_RAW_ECRAM_WRITE";
 ///   1. It is a single byte to a known-safe ERAM offset, OR
 ///   2. The `MICONTROL_ENABLE_RAW_ECRAM_WRITE=1` env var is set AND the target
 ///      address falls within the ACPI ERAM region.
-fn validate_write(phys_addr: u64, data: &[u8]) -> Result<()> {
+fn validate_write(phys_addr: u64, data: &[u8]) -> HardwareResult<()> {
     let eram_base = get_eram_base();
 
     // Check 1: known-safe single-byte write within ERAM
@@ -569,11 +580,11 @@ fn validate_write(phys_addr: u64, data: &[u8]) -> Result<()> {
         .unwrap_or(false);
 
     if !raw_enabled {
-        anyhow::bail!(
+        return Err(HardwareError::Ecram(format!(
             "ECRAM write to 0x{phys_addr:08X} ({} bytes) rejected: not in safe allowlist \
              and {RAW_ECRAM_WRITE_ENABLE_ENV}=1 is not set",
             data.len()
-        );
+        )));
     }
 
     // Even with the override, restrict to the ERAM region to prevent writes to
@@ -581,11 +592,11 @@ fn validate_write(phys_addr: u64, data: &[u8]) -> Result<()> {
     let write_end = phys_addr.saturating_add(data.len() as u64);
     let in_eram = phys_addr >= eram_base && write_end <= eram_base + ERAM_SIZE as u64;
     if !in_eram {
-        anyhow::bail!(
+        return Err(HardwareError::Ecram(format!(
             "ECRAM write to 0x{phys_addr:08X} rejected: address outside ERAM region \
              (0x{eram_base:08X}..0x{:08X}) even with raw-write override",
             eram_base + ERAM_SIZE as u64
-        );
+        )));
     }
 
     Ok(())
@@ -602,7 +613,7 @@ fn validate_write(phys_addr: u64, data: &[u8]) -> Result<()> {
 /// # Safety considerations
 /// Writing to EC RAM can cause unpredictable hardware behaviour if the wrong
 /// addresses or values are used.  Callers must validate inputs carefully.
-pub fn write_ecram(phys_addr: u64, data: &[u8]) -> Result<()> {
+pub fn write_ecram(phys_addr: u64, data: &[u8]) -> HardwareResult<()> {
     assert!(
         !data.is_empty() && data.len() <= 0x100,
         "data must be 1..=0x100 bytes (driver limit)"
@@ -625,28 +636,31 @@ pub fn write_ecram(phys_addr: u64, data: &[u8]) -> Result<()> {
     {
         let device_path = find_iot_device_path()
             .context("IoT driver device not found (is IoTDriver.sys loaded?)")?;
-        write_ecram_inner(&device_path, phys_addr, data)
+        write_ecram_inner(&device_path, phys_addr, data)?;
+        Ok(())
     }
 
     #[cfg(not(windows))]
     {
         let _ = (phys_addr, data);
-        anyhow::bail!("ECRAM write is only supported on Windows")
+        return Err(HardwareError::Ecram(format!(
+            "ECRAM write is only supported on Windows"
+        )));
     }
 }
 
 /// Read a named ECRAM region via direct IoTDriver IOCTL access.
 ///
 /// Supported regions: `ERAM`, `SMA2`, `IOT_STATUS`, `IOT_SENSORS`.
-pub fn read_named_region(region: &str) -> Result<Vec<u8>> {
+pub fn read_named_region(region: &str) -> HardwareResult<Vec<u8>> {
     match region.to_ascii_uppercase().as_str() {
         "ERAM" => read_ecram(get_eram_base(), ERAM_SIZE),
         "SMA2" => read_ecram(SMA2_BASE, SMA2_SIZE),
         "IOT_STATUS" => read_ecram(IOT_STATUS_BASE, IOT_STATUS_SIZE),
         "IOT_SENSORS" => read_ecram(ECRAM_SENSOR_BLOCK, ECRAM_SENSOR_SIZE),
-        _ => anyhow::bail!(
+        _ => Err(HardwareError::Ecram(format!(
             "Unknown ECRAM region: {region}. Supported: ERAM, SMA2, IOT_STATUS, IOT_SENSORS"
-        ),
+        ))),
     }
 }
 
@@ -735,12 +749,16 @@ pub struct EramMap {
 /// Read the ACPI ERAM block and decode all known fields.
 ///
 /// Direct read of the ACPI ERAM register map.
-pub fn read_eram_map() -> Result<EramMap> {
-    // Direct read only
+pub fn read_eram_map() -> HardwareResult<EramMap> {
     let eram = read_ecram(get_eram_base(), 0x100)
         .context("ECRAM read (direct IoTDriver access failed)")?;
 
-    anyhow::ensure!(eram.len() >= 0x100, "Short ERAM read: {} bytes", eram.len());
+    if eram.len() < 0x100 {
+        return Err(HardwareError::Ecram(format!(
+            "Short ERAM read: {} bytes",
+            eram.len()
+        )));
+    }
 
     let raw_hex: String = eram.iter().map(|b| format!("{b:02x}")).collect();
     let control_flags_1b = eram[0x1B];

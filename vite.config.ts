@@ -39,4 +39,15 @@ export default defineConfig(async () => ({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'tauri-vendor': ['@tauri-apps/api', '@tauri-apps/plugin-shell'],
+          sentry: ['@sentry/react'],
+        },
+      },
+    },
+  },
 }));

@@ -10,6 +10,9 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(windows)]
+use std::sync::OnceLock;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProcessInfo {
     pub name: String,
@@ -20,6 +23,10 @@ pub struct ProcessInfo {
     pub memory_mb: f64,
 }
 
+/// Cached number of logical processors (never changes at runtime).
+#[cfg(windows)]
+static CPU_LOGICAL_PROCESSORS: OnceLock<f64> = OnceLock::new();
+
 /// Return up to 20 processes sorted by CPU usage descending.
 /// Excludes the pseudo-process entries "_Total" and "Idle".
 pub fn get_process_list() -> Vec<ProcessInfo> {
@@ -28,31 +35,35 @@ pub fn get_process_list() -> Vec<ProcessInfo> {
         use crate::hw::wmi_cache;
         use std::collections::HashMap;
 
-        let (logical_cpus, rows) = match wmi_cache::with_cimv2(|wmi| {
-            // Number of logical processors — used to normalize CPU%
-            let cpu_q: Vec<HashMap<String, wmi::Variant>> = wmi
-                .raw_query("SELECT NumberOfLogicalProcessors FROM Win32_Processor")
-                .unwrap_or_default();
-            let logical_cpus: f64 = cpu_q
-                .first()
-                .and_then(|r| r.get("NumberOfLogicalProcessors"))
-                .map(|v| match v {
-                    wmi::Variant::UI4(n) => *n as f64,
-                    _ => 1.0,
-                })
-                .unwrap_or(1.0)
-                .max(1.0);
+        let logical_cpus = *CPU_LOGICAL_PROCESSORS.get_or_init(|| {
+            // Number of logical processors — used to normalize CPU%.
+            // This value is static and cached forever.
+            wmi_cache::with_cimv2(|wmi| {
+                let cpu_q: Vec<HashMap<String, wmi::Variant>> = wmi
+                    .raw_query("SELECT NumberOfLogicalProcessors FROM Win32_Processor")
+                    .unwrap_or_default();
+                Ok(cpu_q
+                    .first()
+                    .and_then(|r| r.get("NumberOfLogicalProcessors"))
+                    .map(|v| match v {
+                        wmi::Variant::UI4(n) => *n as f64,
+                        _ => 1.0,
+                    })
+                    .unwrap_or(1.0)
+                    .max(1.0))
+            })
+            .unwrap_or(1.0)
+        });
 
-            let rows: Vec<HashMap<String, wmi::Variant>> = wmi
+        let rows: Vec<HashMap<String, wmi::Variant>> = match wmi_cache::with_cimv2(|wmi| {
+            Ok(wmi
                 .raw_query(
                     "SELECT Name, IDProcess, PercentProcessorTime, WorkingSet \
-                     FROM Win32_PerfFormattedData_PerfProc_Process",
+                 FROM Win32_PerfFormattedData_PerfProc_Process",
                 )
-                .unwrap_or_default();
-
-            Ok((logical_cpus, rows))
+                .unwrap_or_default())
         }) {
-            Ok(v) => v,
+            Ok(rows) => rows,
             Err(_) => return vec![],
         };
 

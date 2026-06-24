@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 /// Named pipe path to the IoTService IPC broker.
@@ -20,9 +21,11 @@ pub struct ChargingResult {
 /// Valid charging threshold levels (percent). 100 = no limit (charge to full).
 const VALID_THRESHOLDS: [u8; 6] = [40, 50, 60, 70, 80, 100];
 
-pub fn set_charging_threshold(threshold: u8) -> Result<ChargingResult> {
+pub fn set_charging_threshold(threshold: u8) -> HardwareResult<ChargingResult> {
     if !VALID_THRESHOLDS.contains(&threshold) {
-        anyhow::bail!("Invalid threshold {threshold}. Must be one of: 40,50,60,70,80,100");
+        return Err(HardwareError::InvalidConfig(format!(
+            "Invalid threshold {threshold}. Must be one of: 40,50,60,70,80,100"
+        )));
     }
 
     // Try named pipe first
@@ -47,7 +50,7 @@ pub fn set_charging_threshold(threshold: u8) -> Result<ChargingResult> {
     })
 }
 
-pub fn get_charging_threshold() -> Result<u8> {
+pub fn get_charging_threshold() -> HardwareResult<u8> {
     #[cfg(windows)]
     {
         read_threshold_registry().unwrap_or(Ok(80))
@@ -82,7 +85,7 @@ struct IotIpcMsg {
 /// Compile-time assertion: IotIpcMsg must be exactly 16 bytes.
 const _: () = assert!(std::mem::size_of::<IotIpcMsg>() == 16);
 
-fn send_via_pipe(threshold: u8) -> Result<()> {
+fn send_via_pipe(threshold: u8) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use std::fs::OpenOptions;
@@ -131,7 +134,7 @@ fn send_via_pipe(threshold: u8) -> Result<()> {
     Ok(())
 }
 
-fn persist_threshold_registry(threshold: u8) -> Result<()> {
+fn persist_threshold_registry(threshold: u8) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -183,7 +186,7 @@ fn persist_threshold_registry(threshold: u8) -> Result<()> {
 }
 
 #[cfg(windows)]
-fn read_threshold_registry() -> Option<Result<u8>> {
+fn read_threshold_registry() -> Option<HardwareResult<u8>> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;

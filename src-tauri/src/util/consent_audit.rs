@@ -143,9 +143,15 @@ pub fn verify_audit_log() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serialize tests that modify LOCALAPPDATA to prevent parallel test pollution.
+    static LOCALAPPDATA_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_log_consent_event_writes_hmac() {
+        let _lock = LOCALAPPDATA_LOCK.lock().unwrap();
+
         // Use a temp directory for testing
         let orig = std::env::var("LOCALAPPDATA").ok();
         let tmp = std::env::temp_dir().join("micontrol_test_audit");
@@ -172,6 +178,8 @@ mod tests {
 
     #[test]
     fn test_verify_audit_log_detects_tampering() {
+        let _lock = LOCALAPPDATA_LOCK.lock().unwrap();
+
         let orig = std::env::var("LOCALAPPDATA").ok();
         let tmp = std::env::temp_dir().join("micontrol_test_audit_verify");
         std::env::set_var("LOCALAPPDATA", &tmp);
