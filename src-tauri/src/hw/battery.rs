@@ -38,7 +38,7 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
     use std::collections::HashMap;
 
     let started = Instant::now();
-    log::trace!(target: "hw::battery", "get_battery_info: start");
+    log::debug!(target: "hw::battery", "get_battery_info: start");
 
     wmi_cache::with_wmi(|wmi| {
         // BatteryStatus
@@ -78,7 +78,7 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
             Some(wmi::Variant::Bool(v)) => *v,
             _ => false,
         };
-        log::trace!(
+        log::debug!(
             target: "hw::battery",
             "wmi snapshot: plugged={} charging={} remaining_capacity={} charge_rate_mw={} voltage_v={:.3}",
             is_plugged,
@@ -155,15 +155,15 @@ pub fn get_battery_info() -> Result<BatteryInfo> {
 
         // Try to read AC adapter input power from ECRAM (IoTDriver.sys)
         let ac_input_power_mw = if is_plugged {
-            log::trace!(target: "hw::battery", "charger is plugged; attempting ECRAM AC power read");
+            log::debug!(target: "hw::battery", "charger is plugged; attempting ECRAM AC power read");
             probe_ac_input_power_throttled()
         } else {
-            log::trace!(target: "hw::battery", "charger is unplugged; skipping ECRAM AC power read");
+            log::debug!(target: "hw::battery", "charger is unplugged; skipping ECRAM AC power read");
             clear_ac_power_probe_cache();
             None
         };
 
-        log::trace!(
+        log::debug!(
             target: "hw::battery",
             "battery info ready: ac_input_power_mw={:?} elapsed_ms={}",
             ac_input_power_mw,
@@ -215,7 +215,7 @@ fn probe_ac_input_power_throttled() -> Option<i32> {
         if let Some(last) = cache.last_probe_at {
             let elapsed = now.saturating_duration_since(last);
             if elapsed < AC_PROBE_MIN_INTERVAL {
-                log::trace!(
+                log::debug!(
                     target: "hw::battery",
                     "ac probe throttled: returning cached value {:?} (elapsed_ms={} < interval_ms={})",
                     cache.last_value_mw,

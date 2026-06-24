@@ -19,6 +19,7 @@ import {
   loadLogs,
   saveLogs,
   loadLastAnalysis,
+  deleteLogById,
   LOGS_KEY,
   type LastAnalysis,
 } from '../hooks/useAnalysisLogger';
@@ -444,6 +445,11 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
   function handleClearLogs() {
     saveLogs([]);
     setLogs([]);
+  }
+
+  function handleDeleteLog(id: string) {
+    deleteLogById(id);
+    setLogs((prev) => prev.filter((log) => log.id !== id));
   }
 
   // Derive chart data from last 80 log entries
@@ -989,7 +995,7 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
               {t('aiAnalysis.logs.title')}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {logs.length} {t('aiAnalysis.logs.entries')}
+              {t('common.logs', { count: logs.length })}
             </div>
           </div>
           <button
@@ -1049,6 +1055,14 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
                         <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 500 }}>
                           🔋%
                         </th>
+                        <th
+                          style={{
+                            textAlign: 'center',
+                            padding: '4px 6px',
+                            fontWeight: 500,
+                            width: 30,
+                          }}
+                        ></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1123,6 +1137,16 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
                               }}
                             >
                               {e.battery_level != null ? e.battery_level.toFixed(0) : '—'}
+                            </td>
+                            <td style={{ padding: '3px 4px', textAlign: 'center' }}>
+                              <button
+                                onClick={() => handleDeleteLog(e.id)}
+                                className="delete-log-button"
+                                aria-label={t('aiAnalysis.logs.deleteLog')}
+                                title={t('aiAnalysis.logs.deleteLog')}
+                              >
+                                ×
+                              </button>
                             </td>
                           </tr>
                         ))}

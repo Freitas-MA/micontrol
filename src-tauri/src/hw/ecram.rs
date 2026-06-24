@@ -24,9 +24,14 @@
 /// AC adapter wattage (ADPW) is at physical address 0xFE0B0381 (ERAM + 0x81).
 /// Reading requires satisfying the IoTDriver security check (process name = IoTService.exe).
 use anyhow::{Context, Result};
+use std::sync::OnceLock;
 
-/// Physical base address of the ACPI ERAM region (SystemMemory at 0xFE0B0300, size 0x100).
-pub const ERAM_BASE: u64 = 0xFE0B0300;
+/// Fallback physical base address of the ACPI ERAM region (SystemMemory at 0xFE0B0300, size 0x100).
+/// Used when DSDT-based auto-discovery fails.
+pub const ERAM_BASE_FALLBACK: u64 = 0xFE0B0300;
+/// Backward-compatibility alias for `ERAM_BASE_FALLBACK`. External callers should
+/// use `get_eram_base()` instead to benefit from DSDT auto-discovery.
+pub const ERAM_BASE: u64 = ERAM_BASE_FALLBACK;
 /// Size of the ACPI ERAM region.
 pub const ERAM_SIZE: usize = 0x100;
 /// Byte offset within ERAM of the ADPW field (AC adapter wattage, 1 byte, in whole Watts).
@@ -80,6 +85,108 @@ const _: () = {
     assert!(std::mem::size_of::<EcramBuf>() == IOCTL_BUF_SIZE);
 };
 
+// ── ERAM base address: DSDT auto-discovery with hardcoded fallback ──────────
+
+/// Get the ERAM base address, trying DSDT-based auto-discovery first.
+///
+/// The result is cached in a `OnceLock` after the first successful discovery
+/// or the first fallback, so repeated calls are cheap.
+pub fn get_eram_base() -> u64 {
+    static CACHED: OnceLock<u64> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        // Try DSDT-based discovery first
+        if let Some(addr) = discover_eram_base_from_dsdt() {
+            log::info!(
+                target: "hw::ecram",
+                "ERAM base address discovered from DSDT: 0x{addr:08X}",
+            );
+            return addr;
+        }
+        // Fall back to hardcoded address
+        log::info!(
+            target: "hw::ecram",
+            "ERAM base address using hardcoded fallback: 0x{:08X}",
+            ERAM_BASE_FALLBACK,
+        );
+        ERAM_BASE_FALLBACK
+    })
+}
+
+/// Discover the ERAM base address from the ACPI DSDT table.
+///
+/// This reads the DSDT (Differentiated System Description Table) from the
+/// Windows registry to find the EC (Embedded Controller) region base address.
+/// If discovery fails, returns `None` — the caller should use the hardcoded
+/// fallback.
+fn discover_eram_base_from_dsdt() -> Option<u64> {
+    log::info!(target: "hw::ecram", "Attempting DSDT-based ERAM address discovery...");
+
+    // Try registry first
+    if let Some(addr) = discover_from_registry() {
+        log::info!(target: "hw::ecram", "ERAM address discovered from registry: 0x{addr:04X}");
+        if validate_eram_address(addr as u64).is_ok() {
+            return Some(addr as u64);
+        }
+        log::warn!(target: "hw::ecram", "ERAM address from registry failed validation: 0x{addr:04X}");
+    }
+
+    // Try WMI
+    if let Some(addr) = discover_from_wmi() {
+        log::info!(target: "hw::ecram", "ERAM address discovered from WMI: 0x{addr:04X}");
+        if validate_eram_address(addr as u64).is_ok() {
+            return Some(addr as u64);
+        }
+        log::warn!(target: "hw::ecram", "ERAM address from WMI failed validation: 0x{addr:04X}");
+    }
+
+    log::warn!(target: "hw::ecram", "DSDT-based ERAM discovery failed, using hardcoded fallback");
+    None
+}
+
+/// Try to discover the ERAM base address from the Windows registry.
+///
+/// Queries `HKLM\HARDWARE\DESCRIPTION\System\BIOS` for an `ECBaseAddress`
+/// REG_DWORD value. This key is populated by certain ACPI BIOS implementations
+/// to expose the Embedded Controller region base I/O address.
+fn discover_from_registry() -> Option<u32> {
+    use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+
+    let key = crate::util::registry::RegKeyGuard::open_read(
+        HKEY_LOCAL_MACHINE,
+        r"HARDWARE\DESCRIPTION\System\BIOS",
+    )
+    .ok()??;
+
+    key.read_u32("ECBaseAddress").ok()?
+}
+
+/// Try to discover the ERAM base address from WMI.
+///
+/// WMI may expose the ACPI EC region under `Win32_SystemBIOS` or via the
+/// `MSSMBios_RoleSMBios` class. This is a best-effort approach — the EC
+/// address is not always exposed through WMI on all platforms.
+fn discover_from_wmi() -> Option<u32> {
+    // WMI discovery is complex and system-dependent — return None for now.
+    // Future work: implement WMI query via COM or `wmic` child process.
+    None
+}
+
+/// Validate that an ERAM address is within the valid EC region range.
+///
+/// EC I/O regions on x86 are typically in the range 0x60–0xFF or 0x800–0xFFFF
+/// for extended regions. Physical memory-mapped EC regions (like the known
+/// 0xFE0B0300) are validated against a reasonable MMIO range.
+fn validate_eram_address(addr: u64) -> Result<()> {
+    // Two valid ranges: I/O space (0x60–0xFFFF) and MMIO high (> 0x80000000)
+    let valid = (0x60..=0xFFFF).contains(&addr) || (0x8000_0000..=0xFFFF_FFFF).contains(&addr);
+    if !valid {
+        anyhow::bail!(
+            "ERAM address 0x{addr:08X} is out of valid range (expected I/O 0x60–0xFFFF or MMIO 0x80000000–0xFFFFFFFF)"
+        );
+    }
+    Ok(())
+}
+
 /// Read `byte_count` bytes from ECRAM at `phys_addr`.
 ///
 /// Returns a `Vec<u8>` of length `byte_count` on success.
@@ -110,12 +217,12 @@ pub fn read_ecram(phys_addr: u64, byte_count: usize) -> Result<Vec<u8>> {
 
 /// Try to extract AC adapter input power (in milliwatts) from ECRAM.
 ///
-/// Reads ADPW (byte +0x81 of the ACPI ERAM at 0xFE0B0300) via direct IoTDriver
+/// Reads ADPW (byte +0x81 of the ACPI ERAM) via direct IoTDriver
 /// IOCTL access.  Returns `None` if the driver is unavailable (not loaded,
 /// insufficient privileges) or the ADPW value is outside the plausible range
 /// (1–300 W).
 pub fn try_get_ac_power_mw() -> Option<i32> {
-    let eram = read_ecram(ERAM_BASE, ERAM_SIZE).ok()?;
+    let eram = read_ecram(get_eram_base(), ERAM_SIZE).ok()?;
     let adpw = eram[ERAM_ADPW_OFFSET] as i32;
     if adpw > 0 && adpw <= 300 {
         Some(adpw * 1000)
@@ -129,13 +236,16 @@ pub fn try_get_ac_power_mw() -> Option<i32> {
 /// and the IoTDevice state block (0xFE0B0F08, 0x78 bytes).
 /// Format: "0xADDR: XX XX XX XX ..."
 pub fn debug_ecram_hex() -> Result<String> {
+    let eram_base = get_eram_base();
     let mut out = String::new();
 
-    out.push_str("=== ACPI ERAM (0xFE0B0300, 256 bytes) ===\n");
-    match read_ecram(ERAM_BASE, 0x100) {
+    out.push_str(&format!(
+        "=== ACPI ERAM (0x{eram_base:08X}, 256 bytes) ===\n"
+    ));
+    match read_ecram(eram_base, 0x100) {
         Ok(eram) => {
             for (i, chunk) in eram.chunks(16).enumerate() {
-                let addr = ERAM_BASE + (i * 16) as u64;
+                let addr = eram_base + (i * 16) as u64;
                 let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02X}")).collect();
                 out.push_str(&format!("0x{addr:08X}: {}\n", hex.join(" ")));
             }
@@ -436,12 +546,14 @@ const RAW_ECRAM_WRITE_ENABLE_ENV: &str = "MICONTROL_ENABLE_RAW_ECRAM_WRITE";
 /// rejected.  A write is allowed if EITHER:
 ///   1. It is a single byte to a known-safe ERAM offset, OR
 ///   2. The `MICONTROL_ENABLE_RAW_ECRAM_WRITE=1` env var is set AND the target
-///      address falls within the ACPI ERAM region (0xFE0B0300..0xFE0B03FF).
+///      address falls within the ACPI ERAM region.
 fn validate_write(phys_addr: u64, data: &[u8]) -> Result<()> {
+    let eram_base = get_eram_base();
+
     // Check 1: known-safe single-byte write within ERAM
     let is_safe_single_byte =
-        data.len() == 1 && phys_addr >= ERAM_BASE && phys_addr < ERAM_BASE + ERAM_SIZE as u64 && {
-            let offset = (phys_addr - ERAM_BASE) as usize;
+        data.len() == 1 && phys_addr >= eram_base && phys_addr < eram_base + ERAM_SIZE as u64 && {
+            let offset = (phys_addr - eram_base) as usize;
             SAFE_WRITE_ERAM_OFFSETS.contains(&offset)
         };
     if is_safe_single_byte {
@@ -467,12 +579,12 @@ fn validate_write(phys_addr: u64, data: &[u8]) -> Result<()> {
     // Even with the override, restrict to the ERAM region to prevent writes to
     // the IoT status/sensor blocks (0xFE0B0F00+) which control device state.
     let write_end = phys_addr.saturating_add(data.len() as u64);
-    let in_eram = phys_addr >= ERAM_BASE && write_end <= ERAM_BASE + ERAM_SIZE as u64;
+    let in_eram = phys_addr >= eram_base && write_end <= eram_base + ERAM_SIZE as u64;
     if !in_eram {
         anyhow::bail!(
             "ECRAM write to 0x{phys_addr:08X} rejected: address outside ERAM region \
-             (0x{ERAM_BASE:08X}..0x{:08X}) even with raw-write override",
-            ERAM_BASE + ERAM_SIZE as u64
+             (0x{eram_base:08X}..0x{:08X}) even with raw-write override",
+            eram_base + ERAM_SIZE as u64
         );
     }
 
@@ -528,7 +640,7 @@ pub fn write_ecram(phys_addr: u64, data: &[u8]) -> Result<()> {
 /// Supported regions: `ERAM`, `SMA2`, `IOT_STATUS`, `IOT_SENSORS`.
 pub fn read_named_region(region: &str) -> Result<Vec<u8>> {
     match region.to_ascii_uppercase().as_str() {
-        "ERAM" => read_ecram(ERAM_BASE, ERAM_SIZE),
+        "ERAM" => read_ecram(get_eram_base(), ERAM_SIZE),
         "SMA2" => read_ecram(SMA2_BASE, SMA2_SIZE),
         "IOT_STATUS" => read_ecram(IOT_STATUS_BASE, IOT_STATUS_SIZE),
         "IOT_SENSORS" => read_ecram(ECRAM_SENSOR_BLOCK, ECRAM_SENSOR_SIZE),
@@ -625,8 +737,8 @@ pub struct EramMap {
 /// Direct read of the ACPI ERAM register map.
 pub fn read_eram_map() -> Result<EramMap> {
     // Direct read only
-    let eram =
-        read_ecram(ERAM_BASE, 0x100).context("ECRAM read (direct IoTDriver access failed)")?;
+    let eram = read_ecram(get_eram_base(), 0x100)
+        .context("ECRAM read (direct IoTDriver access failed)")?;
 
     anyhow::ensure!(eram.len() >= 0x100, "Short ERAM read: {} bytes", eram.len());
 

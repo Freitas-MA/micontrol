@@ -1,0 +1,22 @@
+import { PageHeader } from './PageHeader';
+import { t } from '../../hooks/useI18n';
+import BatteryInfoCard from '../../components/BatteryInfo';
+import ChargingThreshold from '../../components/ChargingThreshold';
+import type { Hardware } from './shared';
+
+interface Props {
+  hw: Hardware;
+}
+
+export default function BatteryTab({ hw }: Props) {
+  return (
+    <>
+      <PageHeader title={t('battery.title')} />
+      <BatteryInfoCard battery={hw.battery} />
+      <ChargingThreshold
+        threshold={hw.chargingThreshold}
+        onThresholdChange={hw.setChargingThreshold}
+      />
+    </>
+  );
+}

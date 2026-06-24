@@ -398,7 +398,17 @@
     "unknown": "Inconnu",
     "show": "Afficher",
     "hide": "Masquer",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "items_one": "{count} élément",
+    "items_other": "{count} éléments",
+    "logs_one": "{count} entrée de journal",
+    "logs_other": "{count} entrées de journal",
+    "devices_one": "{count} appareil",
+    "devices_other": "{count} appareils",
+    "seconds_one": "{count} seconde",
+    "seconds_other": "{count} secondes",
+    "minutes_one": "{count} minute",
+    "minutes_other": "{count} minutes"
   },
   "wifi": {
     "title": "Gestionnaire WiFi",
@@ -603,7 +613,8 @@
       "noEntries": "Aucune entrée encore.",
       "time": "Heure",
       "mode": "Mode",
-      "loadMore": "Charger plus"
+      "loadMore": "Charger plus",
+      "deleteLog": "Supprimer cette entrée de journal"
     }
   },
   "audio": {

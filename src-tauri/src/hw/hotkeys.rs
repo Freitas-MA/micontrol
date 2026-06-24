@@ -41,6 +41,7 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::time::Duration;
 
 use crate::util::panic::lock_or_recover;
 
@@ -63,6 +64,22 @@ const VK_COPILOT: u32 = 0xC3;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // ── Shared state ─────────────────────────────────────────────────────────────
+
+/// Check if a key is currently pressed using GetAsyncKeyState.
+/// This avoids TOCTOU race conditions by checking the actual key state
+/// at the moment of the decision, rather than relying on a time-based heuristic.
+fn is_key_down(vk: u32) -> bool {
+    // SAFETY: GetAsyncKeyState is thread-safe and has no side effects.
+    // Invalid VK codes return 0, which is safe.
+    // Using raw FFI because the windows crate does not expose GetAsyncKeyState
+    // under the currently enabled features.
+    extern "system" {
+        fn GetAsyncKeyState(v_key: i32) -> i16;
+    }
+    let state = unsafe { GetAsyncKeyState(vk as i32) };
+    // High-order bit is set if the key is down
+    (state as u16 & 0x8000) != 0
+}
 
 /// Global hotkey config — written by Tauri commands, read by the hook callback.
 static HOTKEY_CONFIG: OnceLock<Arc<RwLock<HotkeyMap>>> = OnceLock::new();
@@ -1569,16 +1586,23 @@ fn inject_key_event(vk: u16, scan: u16, is_up: bool, extended: bool) {
 fn inject_key_event(_vk: u16, _scan: u16, _is_up: bool, _extended: bool) {}
 
 /// Remap the Copilot key (or any key bound to `RemapToKey`) by:
-///   1. Releasing the spurious `LShift` and `LWin` that travel with it.
+///   1. Releasing the spurious `LShift` and `LWin` that travel with it
+///      (only if they are actually held — gated on `GetAsyncKeyState`
+///      to avoid TOCTOU races with time-based heuristics).
 ///   2. Injecting the target key-down.
 ///      The matching key-up is handled in the LL hook when the source key is released.
 fn do_remap_keydown(target_vk: u32, extended: bool) {
     // Release the modifier keys that accompany the Copilot combo (Win+Shift+F23).
-    // These are no-ops when the key arrived as plain VK 0xC3 (no mods held),
-    // but they are essential when the firmware sends the raw Win+Shift+F23 path.
-    inject_key_event(0xA0, 0, true, false); // LShift up
-    inject_key_event(0x5B, 0, true, true); // LWin up  (extended)
-                                           // Press the target key.
+    // Each modifier is only released if `is_key_down` confirms it is actually
+    // held at this instant, preventing the race where a time-based heuristic
+    // might falsely release a key the user just pressed independently.
+    if is_key_down(0xA0) {
+        inject_key_event(0xA0, 0, true, false); // LShift up
+    }
+    if is_key_down(0x5B) {
+        inject_key_event(0x5B, 0, true, true); // LWin up  (extended)
+    }
+    // Press the target key.
     inject_key_event(target_vk as u16, 0, false, extended);
 }
 
@@ -1643,12 +1667,45 @@ fn start_hotkey_remap(source_vk: u32, target_vk: u32, extended: bool) {
     });
 }
 
+/// Run a WMI event listener with automatic reconnection.
+/// Uses exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max).
+/// If the listener exits normally (Ok), we stop; if it errors, we reconnect.
+fn run_wmi_listener_with_reconnect<F>(listener_name: &str, f: F)
+where
+    F: Fn() -> anyhow::Result<()>,
+{
+    let mut backoff_ms = 1000u64;
+    let max_backoff_ms = 30_000u64;
+
+    loop {
+        match f() {
+            Ok(()) => {
+                log::info!("[hotkeys] WMI listener '{listener_name}' exited normally");
+                return;
+            }
+            Err(e) => {
+                log::warn!(
+                    "[hotkeys] WMI listener '{listener_name}' failed ({}), reconnecting in {}ms...",
+                    e,
+                    backoff_ms
+                );
+                std::thread::sleep(Duration::from_millis(backoff_ms));
+                backoff_ms = (backoff_ms * 2).min(max_backoff_ms);
+            }
+        }
+    }
+}
+
 /// Subscribe directly to IoTDriver.sys WMI events in root\WMI.
 ///
 /// IoTDriver.sys fires HID_EVENT20/21/22/23 when the Xiaomi special keys are
 /// pressed (Fn+F7 / AI key, Xiaomi button, Copilot key, Fn+Esc).  IoTSvc
 /// subscribes to the same classes and forwards them to VirtualControlHID; by
 /// subscribing here we receive the events even when VirtualControlHID is stopped.
+///
+/// Each WMI HID event class runs on its own thread, wrapped in
+/// `run_wmi_listener_with_reconnect` so that dropped WMI connections are
+/// automatically retried with exponential backoff (CWE-665 fix).
 ///
 /// Synthetic VK scheme used in detect mode:
 ///   HID_EVENT20 → 0xA0xx   HID_EVENT21 → 0xA1xx
@@ -1664,9 +1721,9 @@ fn start_wmi_hid_listener() {
         std::thread::Builder::new()
             .name(format!("wmi-hid{idx}"))
             .spawn(move || {
-                if let Err(e) = wmi_hid_event_thread(&class_name, class_idx) {
-                    log::warn!("[hotkeys] WMI {class_name}: thread error: {e:#}");
-                }
+                run_wmi_listener_with_reconnect(&class_name, || {
+                    wmi_hid_event_thread(&class_name, class_idx)
+                });
             })
             .ok();
     }
@@ -2473,6 +2530,10 @@ mod remap_state_tests {
 mod wmi_debounce_tests {
     use super::*;
 
+    /// Serializes access to the shared `WMI_DEBOUNCE` static so that
+    /// tests running in parallel do not clobber each other's entries.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Helper: reset the debounce map to empty.
     fn reset_debounce() {
         // The `wmi_key_debounced` function initializes the OnceLock lazily,
@@ -2486,6 +2547,7 @@ mod wmi_debounce_tests {
     /// A different key fired within the debounce window must NOT be suppressed.
     #[test]
     fn test_different_keys_do_not_debounce_each_other() {
+        let _guard = SERIAL.lock().unwrap();
         reset_debounce();
 
         // Fire key A — should not be debounced.
@@ -2510,6 +2572,7 @@ mod wmi_debounce_tests {
     /// The same key fired twice within the debounce window must be suppressed.
     #[test]
     fn test_same_key_is_debounced() {
+        let _guard = SERIAL.lock().unwrap();
         reset_debounce();
 
         assert!(
@@ -2525,6 +2588,7 @@ mod wmi_debounce_tests {
     /// Sanity-check that the function returns false when called once (no debounce history).
     #[test]
     fn test_first_call_not_debounced() {
+        let _guard = SERIAL.lock().unwrap();
         reset_debounce();
 
         assert!(
@@ -2538,6 +2602,7 @@ mod wmi_debounce_tests {
     /// two keys with different distinguish bytes should not suppress each other.
     #[test]
     fn test_per_key_independence_by_class() {
+        let _guard = SERIAL.lock().unwrap();
         reset_debounce();
 
         // Simulate two different HID classes with the same distinguish byte.

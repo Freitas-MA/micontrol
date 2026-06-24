@@ -28,13 +28,13 @@ use crate::state::PerformanceMode;
 #[tauri::command]
 pub async fn get_battery_info() -> Result<BatteryInfo, String> {
     let started = std::time::Instant::now();
-    log::trace!(target: "cmd::system", "get_battery_info: start");
+    log::debug!(target: "cmd::system", "get_battery_info: start");
     let result = tokio::task::spawn_blocking(hw_get_battery)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
         .map_err(|e| e.to_string());
     match &result {
-        Ok(info) => log::trace!(
+        Ok(info) => log::debug!(
             target: "cmd::system",
             "get_battery_info: ok plugged={} charging={} voltage_mv={} charge_rate_mw={} ac_input_power_mw={:?} elapsed_ms={}",
             info.is_plugged,
@@ -137,13 +137,13 @@ pub async fn set_fan_mode(mode: FanMode, speed_percent: u8) -> Result<(), String
 #[tauri::command]
 pub async fn get_touchpad_info() -> Result<TouchpadInfo, String> {
     let started = std::time::Instant::now();
-    log::trace!(target: "cmd::system", "get_touchpad_info: start");
+    log::debug!(target: "cmd::system", "get_touchpad_info: start");
     let result = tokio::task::spawn_blocking(hw_get_touchpad)
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?
         .map_err(|e| e.to_string());
     match &result {
-        Ok(info) => log::trace!(
+        Ok(info) => log::debug!(
             target: "cmd::system",
             "get_touchpad_info: ok sensitivity={:?} haptics={} gesture_screenshot={} repress={} edge_slide={} elapsed_ms={}",
             info.sensitivity,
@@ -338,21 +338,30 @@ pub struct HardwareState {
     pub audio: Option<AudioVolumeResult>,
 }
 
-/// Poll all hardware state at once with a single `spawn_blocking` call.
+/// Poll all hardware state at once with parallel queries via rayon.
+///
+/// `rayon::join` runs closures in parallel using the global rayon thread pool.
+/// Since WMI connections are thread-local (see `wmi_cache`), each closure
+/// lazily creates its own WMI connection on the first query, making shared
+/// rayon threads safe for concurrent WMI access.
 ///
 /// Each subsystem query is wrapped in `ok()` so a transient WMI/pipe failure
 /// on one sensor doesn't prevent the rest from returning.
 #[tauri::command]
 pub async fn get_hardware_state_batch() -> Result<HardwareState, String> {
     tokio::task::spawn_blocking(|| {
-        let battery = hw_get_battery().ok();
-        let display = hw_get_display().ok();
-        let fan = hw_get_fan().ok();
-        let touchpad = hw_get_touchpad().ok();
-        let system_info = hw_get_sysinfo().ok();
-        let performance_mode = hw_get_perf().ok();
-        let charging_threshold = hw_get_charge().ok();
-        let audio = hw_get_audio().ok();
+        // Wave 1: battery, display, fan, touchpad in parallel
+        let ((battery, display), (fan, touchpad)) = rayon::join(
+            || rayon::join(|| hw_get_battery().ok(), || hw_get_display().ok()),
+            || rayon::join(|| hw_get_fan().ok(), || hw_get_touchpad().ok()),
+        );
+
+        // Wave 2: system_info, performance_mode, charging_threshold, audio in parallel
+        let ((system_info, performance_mode), (charging_threshold, audio)) = rayon::join(
+            || rayon::join(|| hw_get_sysinfo().ok(), || hw_get_perf().ok()),
+            || rayon::join(|| hw_get_charge().ok(), || hw_get_audio().ok()),
+        );
+
         Ok(HardwareState {
             battery,
             display,

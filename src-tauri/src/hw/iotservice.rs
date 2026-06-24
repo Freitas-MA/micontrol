@@ -378,7 +378,7 @@ fn send_ipc_message(dst_id: u16, msg_type: u32, payload: &[u8]) -> Result<Vec<u8
             use std::time::Duration;
 
             let seq = REQUEST_SEQ.fetch_add(1, Ordering::SeqCst);
-            log::trace!(
+            log::debug!(
                 target: "hw::iotservice",
                 "IPC request #{seq}: msg_type=0x{msg_type:04X}, dst_id={dst_id}, payload_len={}",
                 payload.len()

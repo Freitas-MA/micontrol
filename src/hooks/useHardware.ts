@@ -442,22 +442,12 @@ export function useHardware() {
   // the previous snapshot of any state that supports optimistic updates.
   useEffect(() => {
     touchpadRef.current = touchpad;
-  }, [touchpad]);
-  useEffect(() => {
     displayRef.current = display;
-  }, [display]);
-  useEffect(() => {
     fanRef.current = fan;
-  }, [fan]);
-  useEffect(() => {
     performanceModeRef.current = performanceMode;
-  }, [performanceMode]);
-  useEffect(() => {
     chargingThresholdRef.current = chargingThreshold;
-  }, [chargingThreshold]);
-  useEffect(() => {
     audioStateRef.current = audioState;
-  }, [audioState]);
+  }, [touchpad, display, fan, performanceMode, chargingThreshold, audioState]);
 
   const setTouchpadSensitivity = useCallback(
     async (sensitivity: 'low' | 'medium' | 'high' | 'very_high') => {
@@ -732,38 +722,30 @@ export function useHardware() {
     }
   }, []);
 
-  const setMasterVolume = useCallback(
-    async (volumeFraction: number) => {
-      const volume = Math.round(volumeFraction * 100);
-      const snap = audioStateRef.current;
-      setAudioState((prev) => (prev ? { ...prev, volume } : null));
-      try {
-        await invoke('set_audio_volume', { volume });
-        await getAudioState();
-      } catch (e) {
-        setAudioState(snap);
-        console.error('[audio] set_audio_volume failed:', e);
-        throw e;
-      }
-    },
-    [getAudioState],
-  );
+  const setMasterVolume = useCallback(async (volumeFraction: number) => {
+    const volume = Math.round(volumeFraction * 100);
+    const snap = audioStateRef.current;
+    setAudioState((prev) => (prev ? { ...prev, volume } : null));
+    try {
+      await invoke('set_audio_volume', { volume });
+    } catch (e) {
+      setAudioState(snap);
+      console.error('[audio] set_audio_volume failed:', e);
+      throw e;
+    }
+  }, []);
 
-  const setMasterMute = useCallback(
-    async (muted: boolean) => {
-      const snap = audioStateRef.current;
-      setAudioState((prev) => (prev ? { ...prev, muted } : null));
-      try {
-        await invoke('set_audio_mute', { muted });
-        await getAudioState();
-      } catch (e) {
-        setAudioState(snap);
-        console.error('[audio] set_audio_mute failed:', e);
-        throw e;
-      }
-    },
-    [getAudioState],
-  );
+  const setMasterMute = useCallback(async (muted: boolean) => {
+    const snap = audioStateRef.current;
+    setAudioState((prev) => (prev ? { ...prev, muted } : null));
+    try {
+      await invoke('set_audio_mute', { muted });
+    } catch (e) {
+      setAudioState(snap);
+      console.error('[audio] set_audio_mute failed:', e);
+      throw e;
+    }
+  }, []);
 
   useEffect(() => {
     void refreshHardwareProfile();

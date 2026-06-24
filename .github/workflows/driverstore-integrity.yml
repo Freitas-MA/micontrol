@@ -20,6 +20,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
+        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
+        # Example: actions/checkout@<full-commit-sha>  # v4
         uses: actions/checkout@v4
 
       - name: Run DriverStore integrity check

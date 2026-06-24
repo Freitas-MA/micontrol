@@ -34,6 +34,10 @@ interface ScheduleState {
   recent: string[];
 }
 
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function loadLogs(): AnalysisLogEntry[] {
@@ -47,6 +51,19 @@ export function loadLogs(): AnalysisLogEntry[] {
 export function saveLogs(logs: AnalysisLogEntry[]) {
   const trimmed = logs.slice(-MAX_LOGS);
   localStorage.setItem(LOGS_KEY, JSON.stringify(trimmed));
+}
+
+export function deleteLogById(id: string): void {
+  try {
+    const stored = localStorage.getItem(LOGS_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as AnalysisLogEntry[];
+      const filtered = parsed.filter((log) => log.id !== id);
+      localStorage.setItem(LOGS_KEY, JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.error('Failed to delete log from localStorage:', e);
+  }
 }
 
 export function loadLastAnalysis(): LastAnalysis | null {
@@ -118,6 +135,7 @@ export function useAnalysisLogger(hw: Hardware, ai: Settings) {
     }
 
     const entry: AnalysisLogEntry = {
+      id: generateId(),
       ts: new Date().toISOString(),
       mode: h.performanceMode ?? 'unknown',
       cpu_temp: fan?.cpu_temp_celsius ?? 0,

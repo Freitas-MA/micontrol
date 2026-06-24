@@ -94,6 +94,41 @@ If these secrets are not set, the release will succeed but the installer will be
 - **Tauri updater key**: No expiry (Ed25519 keys don't expire)
 - **Windows code signing cert**: Track the expiry date in your team calendar; renew at least 30 days before expiry
 
+## Rollback Procedure
+
+If a release needs to be rolled back:
+
+### 1. Mark the Release as Draft (GitHub)
+
+1. Go to the GitHub Releases page
+2. Find the release to roll back
+3. Click "Edit" (pencil icon)
+4. Change the status to "Draft"
+5. This hides the release from public view
+
+### 2. Revert the Commit
+
+```bash
+git revert <release-commit-hash>
+git push origin master
+```
+
+### 3. Re-publish Previous Version
+
+1. Find the previous stable release tag
+2. Re-publish the release artifacts from the previous tag
+3. Update `latest.json` to point to the previous version
+
+### 4. Notify Users
+
+- Post an announcement in the release notes
+- Update the download page if applicable
+
+### 5. Post-Mortem
+
+- Document the reason for rollback
+- Add a regression test to prevent recurrence
+
 ## Troubleshooting
 
 - **Build fails**: Check that all versions are synced (`npm run version:check`)

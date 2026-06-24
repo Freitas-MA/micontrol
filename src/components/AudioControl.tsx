@@ -81,6 +81,7 @@ export default function AudioControl({
       {/* Volume Slider */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <button
+          className="mute-btn"
           onClick={handleMuteToggle}
           style={{
             background: 'none',
@@ -89,7 +90,6 @@ export default function AudioControl({
             fontSize: 24,
             padding: 4,
             borderRadius: 'var(--r-xs)',
-            transition: 'transform var(--t-fast)',
           }}
           title={muted ? t('audio.unmute') : t('audio.mute')}
           aria-label={muted ? t('audio.unmute') : t('audio.mute')}

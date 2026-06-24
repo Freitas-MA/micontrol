@@ -9,10 +9,19 @@ pub fn init_logging() -> Result<()> {
     if is_tauri_dev() {
         init_dev_file_logger()
     } else {
-        env_logger::Builder::from_default_env()
-            .filter_level(log::LevelFilter::Info)
-            .try_init()
-            .context("init env_logger")?;
+        fern::Dispatch::new()
+            .level(log::LevelFilter::Info)
+            .format(|out, message, record| {
+                let ts = humantime::format_rfc3339_millis(SystemTime::now());
+                out.finish(format_args!(
+                    "{ts} [{level:<5}] {target}: {message}",
+                    level = record.level(),
+                    target = record.target(),
+                ))
+            })
+            .chain(std::io::stdout())
+            .apply()
+            .context("init fern logger")?;
         Ok(())
     }
 }

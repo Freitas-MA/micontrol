@@ -1,0 +1,13 @@
+# Cargo build configuration
+#
+# target-cpu=x86-64 enables CPU-specific instructions (x86-64 baseline)
+# available on all x86-64 processors. This provides a safe performance
+# improvement without sacrificing portability.
+#
+# For local development, you can override this for maximum performance:
+#   RUSTFLAGS="-C target-cpu=native" cargo build --release
+#
+# Note: target-cpu=native is NOT set here because it would make binaries
+# non-reproducible across different machines and unsuitable for distribution.
+[build]
+rustflags = ["-C", "target-cpu=x86-64"]

@@ -412,7 +412,22 @@
     "unknown": "Unknown",
     "show": "Show",
     "hide": "Hide",
-    "retry": "Retry"
+    "retry": "Retry",
+    "items": "{count} items",
+    "items_one": "{count} item",
+    "items_other": "{count} items",
+    "logs": "{count} log entries",
+    "logs_one": "{count} log entry",
+    "logs_other": "{count} log entries",
+    "devices": "{count} devices",
+    "devices_one": "{count} device",
+    "devices_other": "{count} devices",
+    "seconds": "{count} seconds",
+    "seconds_one": "{count} second",
+    "seconds_other": "{count} seconds",
+    "minutes": "{count} minutes",
+    "minutes_one": "{count} minute",
+    "minutes_other": "{count} minutes"
   },
   "wifi": {
     "title": "WiFi Manager",
@@ -663,7 +678,8 @@
       "noEntries": "No log entries yet.",
       "time": "Time",
       "mode": "Mode",
-      "loadMore": "Load more"
+      "loadMore": "Load more",
+      "deleteLog": "Delete this log entry"
     }
   },
   "audio": {

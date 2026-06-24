@@ -116,12 +116,28 @@ function getNestedValue(obj: unknown, path: string): string {
   return current;
 }
 
-/** Translate a key with optional variable interpolation. */
-export function t(key: StringKey, vars?: Record<string, string>): string {
-  let value = getNestedValue(_strings, key);
+/** Translate a key with optional variable interpolation and pluralization.
+ *  When `vars` includes a `count` field, the function resolves pluralized keys
+ *  using the `_one` (count === 1) / `_other` (count !== 1) suffix convention.
+ *  Falls back to the base key if no pluralized variant exists. */
+export function t(key: StringKey, vars?: Record<string, string | number>): string {
+  let resolvedKey = key;
+
+  // Pluralization: when count is present, try _one / _other suffix
+  if (vars && typeof vars.count === 'number') {
+    const suffix = vars.count === 1 ? '_one' : '_other';
+    const pluralKey = `${key}${suffix}` as StringKey;
+    const pluralVal = getNestedValue(_strings, pluralKey);
+    // Only use pluralized key if it actually exists in the locale
+    if (pluralVal !== pluralKey) {
+      resolvedKey = pluralKey;
+    }
+  }
+
+  let value = getNestedValue(_strings, resolvedKey);
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
-      value = value.replace(`{${k}}`, v);
+      value = value.replace(`{${k}}`, String(v));
     }
   }
   return value;

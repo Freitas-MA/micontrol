@@ -249,7 +249,17 @@
     "unknown": "Desconhecido",
     "show": "Mostrar",
     "hide": "Ocultar",
-    "retry": "Tentar novamente"
+    "retry": "Tentar novamente",
+    "items_one": "{count} item",
+    "items_other": "{count} itens",
+    "logs_one": "{count} entrada de registro",
+    "logs_other": "{count} entradas de registro",
+    "devices_one": "{count} dispositivo",
+    "devices_other": "{count} dispositivos",
+    "seconds_one": "{count} segundo",
+    "seconds_other": "{count} segundos",
+    "minutes_one": "{count} minuto",
+    "minutes_other": "{count} minutos"
   },
   "updates": {
     "title": "Drivers & BIOS",

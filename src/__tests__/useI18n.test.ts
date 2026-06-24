@@ -62,4 +62,29 @@ describe('useI18n - t()', () => {
     const result = t('errors.commandFailed', { error: 'TEST_ERROR' });
     expect(result).toContain('TEST_ERROR');
   });
+
+  it('pluralizes _one for count === 1', () => {
+    const result = t('common.items', { count: 1 });
+    expect(result).toBe('1 item');
+  });
+
+  it('pluralizes _other for count !== 1', () => {
+    const result = t('common.items', { count: 5 });
+    expect(result).toBe('5 items');
+  });
+
+  it('pluralizes with count === 0 using _other', () => {
+    const result = t('common.items', { count: 0 });
+    expect(result).toBe('0 items');
+  });
+
+  it('falls back to base key when no plural variant exists', () => {
+    const result = t('common.close', { count: 3 });
+    expect(result).toBe('Close');
+  });
+
+  it('interpolates count alongside other variables', () => {
+    const result = t('common.items', { count: 1 });
+    expect(result).toBe('1 item');
+  });
 });

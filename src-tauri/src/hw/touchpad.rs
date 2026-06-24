@@ -123,7 +123,7 @@ pub fn get_touchpad_info() -> Result<TouchpadInfo> {
         trackpad_repress: false,
         edge_slide: false,
     });
-    log::trace!(
+    log::debug!(
         target: "hw::touchpad",
         "get_touchpad_info: sensitivity={:?} haptics={} gesture_screenshot={} repress={} edge_slide={}",
         info.sensitivity,
@@ -496,7 +496,7 @@ fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Resul
     // Build the Feature Report; always at least 8 bytes to cover the report ID
     // plus the two data bytes.
     let report_len = feature_len.clamp(8, 64);
-    let mut report = vec![0u8; report_len];
+    let mut report = [0u8; 64]; // Stack allocation — no heap allocation
     report[0] = 0x07; // BLTP7853 haptics Feature Report ID
     report[1] = if enabled { 0x01 } else { 0x00 }; // haptics on/off
     report[2] = match intensity {
@@ -506,9 +506,9 @@ fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Resul
     };
 
     let ok = unsafe {
-        // SAFETY: report is a valid Vec<u8> owned by this function; HidD_SetFeature copies
+        // SAFETY: report is a valid array owned by this function; HidD_SetFeature copies
         // the report data into the HID stack and does not retain the pointer.
-        HidD_SetFeature(handle, report.as_mut_ptr() as *mut _, report.len() as u32).as_bool()
+        HidD_SetFeature(handle, report.as_mut_ptr() as *mut _, report_len as u32).as_bool()
     };
 
     if ok {
@@ -981,7 +981,7 @@ unsafe fn process_raw_input(lparam: isize) {
     }
 
     // ── Fetch the raw input struct ────────────────────────────────────────────
-    let mut buf = vec![0u8; size as usize];
+    let mut buf = [0u8; 4096]; // Stack allocation — no heap allocation per frame
     let written = GetRawInputData(
         HRAWINPUT(lparam as *mut _),
         RID_INPUT,
@@ -1021,12 +1021,12 @@ unsafe fn process_raw_input(lparam: isize) {
             // Device name query may transiently fail. Be conservative: ignore
             // this frame to avoid accepting packets from the wrong HID source.
             // Do not cache this result so a later successful query can recover.
-            log::trace!(target: "hw::touchpad", "raw input device name query failed for device_key={device_key}");
+            log::debug!(target: "hw::touchpad", "raw input device name query failed for device_key={device_key}");
             return false;
         };
         let matched = is_touchpad_device_path(name, &expected_touchpad);
         cache.insert(device_key, matched);
-        log::trace!(
+        log::debug!(
             target: "hw::touchpad",
             "raw input device filter: key={} matched={} raw={} expected={}",
             device_key,
@@ -1118,7 +1118,7 @@ unsafe fn process_raw_input(lparam: isize) {
         );
         return;
     }
-    log::trace!(
+    log::debug!(
         target: "hw::touchpad",
         "accepted raw touchpad frame: device_key={} size_hid={} count={} safe_len={}",
         device_key,

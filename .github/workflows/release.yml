@@ -16,12 +16,18 @@ jobs:
       contents: write  # Required to create GitHub Release
 
     steps:
+      # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
+      # Example: actions/checkout@<full-commit-sha>  # v4
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
+        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
+        # Example: dtolnay/rust-toolchain@<full-commit-sha>  # stable
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Node.js
+        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
+        # Example: actions/setup-node@<full-commit-sha>  # v4
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -34,6 +40,8 @@ jobs:
         run: npm run version:sync
 
       - name: Cache cargo
+        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
+        # Example: actions/cache@<full-commit-sha>  # v4
         uses: actions/cache@v4
         with:
           path: |
@@ -135,6 +143,8 @@ jobs:
         shell: pwsh
 
       - name: Upload build artifacts
+        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
+        # Example: actions/upload-artifact@<full-commit-sha>  # v4
         uses: actions/upload-artifact@v4
         with:
           name: tauri-release-artifacts
@@ -145,6 +155,8 @@ jobs:
             src-tauri/target/release/bundle/**/*.appx
 
       - name: Create GitHub Release
+        # TODO: Pin to commit SHA for supply-chain security (CWE-1357)
+        # Example: softprops/action-gh-release@<full-commit-sha>  # v2
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

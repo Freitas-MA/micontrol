@@ -408,6 +408,7 @@ Be concise. Use short paragraphs with emoji section headers. Max 300 words.`;
 // ── Shared log entry type for AI Analysis module ──────────────────────────────
 
 export interface AnalysisLogEntry {
+  id: string;
   ts: string;
   mode: string;
   cpu_temp: number;
