@@ -391,38 +391,92 @@ fn read_touchpad_registry() -> Result<TouchpadInfo> {
 // If the haptics do not respond, capture HID traffic from XiaomiPCManager with
 // USBPcap/Wireshark and compare the Feature Report payload to update these bytes.
 
+/// Wrapper around `HANDLE` that implements `Send` and `Sync`.
+/// `HANDLE` is `*mut c_void` which is neither `Send` nor `Sync` but Windows
+/// handles are safe to share across threads.
 #[cfg(windows)]
-fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Result<()> {
+#[derive(Clone, Copy)]
+struct SendHandle(windows::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+unsafe impl Send for SendHandle {}
+#[cfg(windows)]
+unsafe impl Sync for SendHandle {}
+
+/// Cached HID device handle for haptics writes.
+/// Opened once and reused for the lifetime of the gesture thread.
+#[cfg(windows)]
+static HAPTICS_HANDLE: std::sync::OnceLock<std::sync::Mutex<Option<SendHandle>>> =
+    std::sync::OnceLock::new();
+
+/// Get or open the haptics HID device handle.
+#[cfg(windows)]
+fn get_haptics_handle() -> windows::core::Result<windows::Win32::Foundation::HANDLE> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
-    use windows::Win32::Devices::HumanInterfaceDevice::{
-        HidD_FreePreparsedData, HidD_GetPreparsedData, HidD_SetFeature, HidP_GetCaps, HIDP_CAPS,
-        PHIDP_PREPARSED_DATA,
-    };
-    use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
+    use windows::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING,
     };
 
-    let path = touchpad_hid_path();
-    let path_w: Vec<u16> = OsStr::new(&path).encode_wide().chain(Some(0)).collect();
+    let lock = HAPTICS_HANDLE.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = lock.lock().unwrap();
 
+    if let Some(send_handle) = *guard {
+        let handle = send_handle.0;
+        if handle != INVALID_HANDLE_VALUE {
+            return Ok(handle);
+        }
+    }
+
+    // Open a new handle
+    let device_path = touchpad_hid_path();
+    let path_w: Vec<u16> = OsStr::new(&device_path)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    // SAFETY: CreateFileW with valid path and standard access flags.
     let handle = unsafe {
-        // SAFETY: CreateFileW is called with a null-terminated wide string for the HID device
-        // path discovered at startup. The returned HANDLE is checked for validity; it is used
-        // only within this function and closed explicitly.
         CreateFileW(
             PCWSTR(path_w.as_ptr()),
-            (GENERIC_READ | GENERIC_WRITE).0,
+            FILE_GENERIC_WRITE.0,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
             None,
         )
-        .context("Open BLTP7853 COL04 for haptics")?
+    }?;
+
+    *guard = Some(SendHandle(handle));
+    Ok(handle)
+}
+
+/// Close the cached haptics handle. Called when the gesture thread exits.
+#[cfg(windows)]
+pub fn close_haptics_handle() {
+    if let Some(lock) = HAPTICS_HANDLE.get() {
+        let mut guard = lock.lock().unwrap();
+        if let Some(send_handle) = guard.take() {
+            // SAFETY: handle was created by CreateFileW.
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(send_handle.0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Result<()> {
+    use windows::Win32::Devices::HumanInterfaceDevice::{
+        HidD_FreePreparsedData, HidD_GetPreparsedData, HidD_SetFeature, HidP_GetCaps, HIDP_CAPS,
+        PHIDP_PREPARSED_DATA,
     };
+
+    let handle = get_haptics_handle().context("Get haptics HID handle")?;
 
     // Query feature report byte length from the device's HID descriptor.
     let feature_len = unsafe {
@@ -456,10 +510,6 @@ fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Resul
         // the report data into the HID stack and does not retain the pointer.
         HidD_SetFeature(handle, report.as_mut_ptr() as *mut _, report.len() as u32).as_bool()
     };
-    unsafe {
-        // SAFETY: CloseHandle is always safe on a valid HANDLE obtained from CreateFileW.
-        let _ = CloseHandle(handle);
-    }
 
     if ok {
         log::info!(
@@ -468,12 +518,28 @@ fn send_haptics_hid_report(enabled: bool, intensity: &HapticsIntensity) -> Resul
         );
         Ok(())
     } else {
-        let err = unsafe {
-            // SAFETY: GetLastError is a lightweight call that returns the thread's last-error
-            // code; it always succeeds and requires no special state.
-            windows::Win32::Foundation::GetLastError()
+        // If HidD_SetFeature fails, the device may have been removed — reopen the handle.
+        close_haptics_handle();
+        let handle = get_haptics_handle().context("Reopen haptics HID handle after failure")?;
+
+        let ok = unsafe {
+            HidD_SetFeature(handle, report.as_mut_ptr() as *mut _, report.len() as u32).as_bool()
         };
-        anyhow::bail!("HidD_SetFeature BLTP7853: {err:?}")
+
+        if ok {
+            log::info!(
+                "[touchpad] BLTP7853 haptics HID (retry): enabled={enabled} intensity={:?}",
+                intensity
+            );
+            Ok(())
+        } else {
+            let err = unsafe {
+                // SAFETY: GetLastError is a lightweight call that returns the thread's last-error
+                // code; it always succeeds and requires no special state.
+                windows::Win32::Foundation::GetLastError()
+            };
+            anyhow::bail!("HidD_SetFeature BLTP7853 (retry): {err:?}")
+        }
     }
 }
 

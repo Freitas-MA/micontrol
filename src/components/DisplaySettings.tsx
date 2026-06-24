@@ -38,7 +38,7 @@ export default function DisplaySettings({
     try {
       await fn();
     } catch (e) {
-      addToast(`${label}: ${String(e)}`, 'error');
+      addToast({ message: `${label}: ${String(e)}`, type: 'error', onRetry: fn });
     }
   };
 
@@ -400,14 +400,14 @@ export default function DisplaySettings({
             void (async () => {
               try {
                 await onAdaptiveRefreshRateChange(v);
-                addToast(
-                  v
+                addToast({
+                  message: v
                     ? 'PSR2 DRRS enabled. Reboot required. Note: Windows will still report the configured Hz — PSR2 operates below the OS.'
                     : 'PSR2 DRRS disabled. Reboot required.',
-                  'info',
-                );
+                  type: 'info',
+                });
               } catch (e) {
-                addToast(`Adaptive refresh rate: ${String(e)}`, 'error');
+                addToast({ message: `Adaptive refresh rate: ${String(e)}`, type: 'error' });
               }
             })();
           }}
@@ -423,10 +423,10 @@ export default function DisplaySettings({
             paddingLeft: 2,
           }}
         >
-          💡 PSR2 DRRS ≠ Windows "Dynamic Refresh Rate". Windows DRR requires a VRR-capable display.
-          PSR2 DRRS is an Intel driver feature that switches the panel refresh rate internally —
-          Windows always reports the max configured Hz (currently {display.refresh_rate_hz} Hz),
-          even when PSR2 is active.
+          💡 PSR2 DRRS ≠ Windows &ldquo;Dynamic Refresh Rate&rdquo;. Windows DRR requires a
+          VRR-capable display. PSR2 DRRS is an Intel driver feature that switches the panel refresh
+          rate internally — Windows always reports the max configured Hz (currently{' '}
+          {display.refresh_rate_hz} Hz), even when PSR2 is active.
         </div>
       )}{' '}
     </div>

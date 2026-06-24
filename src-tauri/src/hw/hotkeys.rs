@@ -33,6 +33,7 @@
 //! 7. Add key-sequence / chord support (press two keys in sequence to trigger an action).
 //!
 //! 8. Per-Windows-user profile storage (multi-user session awareness).
+//!
 //! ─────────────────────────────────────────────────────────────────────────────
 
 use std::collections::HashMap;
@@ -93,11 +94,6 @@ static OPEN_MAIN_CALLBACK: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new
 enum RemapState {
     Idle,
     AwaitingKey {
-        /// The action being remapped (e.g. "ai_key", "xiaomi_key").
-        /// Currently informational; the frontend reads the captured VK and
-        /// applies it via `set_hotkey_config`.
-        #[allow(dead_code)]
-        target_action: String,
         /// VK code captured so far (0 = none yet).
         captured_vk: u32,
     },
@@ -201,12 +197,6 @@ pub enum HotkeyAction {
         path: String,
         args: Vec<String>,
     },
-}
-
-impl Default for HotkeyAction {
-    fn default() -> Self {
-        HotkeyAction::None
-    }
 }
 
 /// Per-key binding entry.
@@ -372,10 +362,7 @@ pub fn set_open_main_callback(f: Box<dyn Fn() + Send + Sync>) {
 pub fn start_detect_mode() {
     {
         let mut state = lock_or_recover(&REMAP_STATE);
-        *state = RemapState::AwaitingKey {
-            target_action: String::new(),
-            captured_vk: 0,
-        };
+        *state = RemapState::AwaitingKey { captured_vk: 0 };
     }
     log::info!("[hotkeys] Key detect mode started (10 s max — press any key)");
     std::thread::spawn(|| {
@@ -414,7 +401,6 @@ pub fn cancel_detect_mode() {
     log::info!("[hotkeys] Key detect mode cancelled");
 }
 
-/// Return the VK code captured in the most recent detect session (0 if none).
 pub fn get_detected_vk() -> u32 {
     let state = lock_or_recover(&REMAP_STATE);
     match &*state {
@@ -912,7 +898,7 @@ fn dispatch_consumer_usage(usage: u16) {
         // 0x0169 = AC Mute Microphone (newer standard, same function)
         0x00E2 | 0x00CF | 0x0169 => {
             log::info!("[hotkeys] Consumer: mic/audio mute key → show OSD");
-            std::thread::spawn(|| crate::hw::osd::show_mic_mute_osd_toggle());
+            std::thread::spawn(crate::hw::osd::show_mic_mute_osd_toggle);
         }
         // 0x0271 = Keyboard Backlight Brightness (HID usage)
         // 0x01BB = Keyboard Backlight toggle (Xiaomi specific, may vary)
@@ -1246,6 +1232,7 @@ fn has_consent(interpreter: &str, path: &str, args: &[String]) -> bool {
 ///
 /// Called by the frontend Tauri command when the user clicks "Always Allow"
 /// in the consent dialog.
+#[allow(dead_code)]
 fn grant_consent(interpreter: &str, path: &str, args: &[String]) -> Result<(), String> {
     let hash = script_hash(interpreter, path, args);
     let consent_file = consent_path();
@@ -1546,7 +1533,7 @@ fn send_win_key_combo(_vk: u16) {}
 /// * `scan`     – hardware scan code (0 = let Windows derive it).
 /// * `is_up`    – `true` for key-up, `false` for key-down.
 /// * `extended` – `true` for right-side keys and navigation keys that require
-///               `KEYEVENTF_EXTENDEDKEY` (RCtrl, RAlt, RShift, Insert, Delete…).
+///   `KEYEVENTF_EXTENDEDKEY` (RCtrl, RAlt, RShift, Insert, Delete…).
 #[cfg(windows)]
 fn inject_key_event(vk: u16, scan: u16, is_up: bool, extended: bool) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -1584,7 +1571,7 @@ fn inject_key_event(_vk: u16, _scan: u16, _is_up: bool, _extended: bool) {}
 /// Remap the Copilot key (or any key bound to `RemapToKey`) by:
 ///   1. Releasing the spurious `LShift` and `LWin` that travel with it.
 ///   2. Injecting the target key-down.
-/// The matching key-up is handled in the LL hook when the source key is released.
+///      The matching key-up is handled in the LL hook when the source key is released.
 fn do_remap_keydown(target_vk: u32, extended: bool) {
     // Release the modifier keys that accompany the Copilot combo (Win+Shift+F23).
     // These are no-ops when the key arrived as plain VK 0xC3 (no mods held),
@@ -1698,8 +1685,8 @@ fn wmi_hid_event_thread(class_name: &str, class_idx: u32) -> anyhow::Result<()> 
     }
 
     let com = COMLibrary::new().context("WMI: COMLibrary")?;
-    let con = WMIConnection::with_namespace_path("ROOT\\WMI", com.into())
-        .context("WMI: connect root\\WMI")?;
+    let con =
+        WMIConnection::with_namespace_path("ROOT\\WMI", com).context("WMI: connect root\\WMI")?;
 
     let query = format!("SELECT * FROM {class_name}");
     let iter = con
@@ -2347,10 +2334,7 @@ mod remap_state_tests {
             // Thread 1: begin remap
             handles.push(thread::spawn(move || {
                 let mut state = lock_or_recover(&REMAP_STATE);
-                *state = RemapState::AwaitingKey {
-                    target_action: format!("action_{}", i),
-                    captured_vk: 0,
-                };
+                *state = RemapState::AwaitingKey { captured_vk: 0 };
             }));
 
             // Thread 2: cancel remap
@@ -2417,10 +2401,7 @@ mod remap_state_tests {
 
         // Start remap
         let mut state = lock_or_recover(&REMAP_STATE);
-        *state = RemapState::AwaitingKey {
-            target_action: "test_action".into(),
-            captured_vk: 0,
-        };
+        *state = RemapState::AwaitingKey { captured_vk: 0 };
         drop(state);
 
         // Cancel (simulates user pressing Escape or timeout)
@@ -2457,10 +2438,7 @@ mod remap_state_tests {
 
         // Start remap
         let mut state = lock_or_recover(&REMAP_STATE);
-        *state = RemapState::AwaitingKey {
-            target_action: "test_action".into(),
-            captured_vk: 0,
-        };
+        *state = RemapState::AwaitingKey { captured_vk: 0 };
         drop(state);
 
         // Capture a key

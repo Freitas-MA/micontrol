@@ -1,17 +1,26 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { t as i18n } from '../hooks/useI18n';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type ToastType = 'error' | 'success' | 'info';
 
+export interface ToastOptions {
+  message: string;
+  type?: ToastType;
+  onRetry?: () => void;
+  duration?: number;
+}
+
 interface ToastItem {
   id: number;
   message: string;
   type: ToastType;
+  onRetry?: () => void;
 }
 
 interface ToastContextValue {
-  addToast: (message: string, type?: ToastType) => void;
+  addToast: (message: string | ToastOptions, type?: ToastType) => void;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -28,13 +37,30 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(0);
 
-  const addToast = useCallback((message: string, type: ToastType = 'error') => {
-    const id = ++nextId.current;
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 5000);
-  }, []);
+  const addToast = useCallback(
+    (messageOrOpts: string | ToastOptions, type: ToastType = 'error') => {
+      let message: string;
+      let toastType: ToastType = type;
+      let onRetry: (() => void) | undefined;
+      let duration = 5000;
+
+      if (typeof messageOrOpts === 'object') {
+        message = messageOrOpts.message;
+        toastType = messageOrOpts.type ?? type;
+        onRetry = messageOrOpts.onRetry;
+        duration = messageOrOpts.duration ?? 5000;
+      } else {
+        message = messageOrOpts;
+      }
+
+      const id = ++nextId.current;
+      setToasts((prev) => [...prev, { id, message, type: toastType, onRetry }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, duration);
+    },
+    [],
+  );
 
   const dismiss = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -52,6 +78,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               {t.type === 'error' ? '⚠' : t.type === 'success' ? '✓' : 'ℹ'}
             </span>
             <span className="toast__message">{t.message}</span>
+            {t.onRetry && (
+              <button
+                className="toast-retry-btn"
+                onClick={() => {
+                  t.onRetry!();
+                  dismiss(t.id);
+                }}
+              >
+                {i18n('common.retry')}
+              </button>
+            )}
             <button className="toast__close" onClick={() => dismiss(t.id)} aria-label="Dismiss">
               ×
             </button>

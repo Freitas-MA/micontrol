@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import PerformanceModeSelector from '../components/PerformanceModeSelector';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { PerformanceMode as _PerformanceMode } from '../hooks/useHardware';
 
 describe('PerformanceModeSelector', () => {

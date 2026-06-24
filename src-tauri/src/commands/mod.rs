@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod ai_logs;
 pub mod credentials;
 pub mod hardware;

@@ -198,7 +198,7 @@ fn read_last_scan_time() -> Result<String> {
         let val: String = key
             .get_value("LastScanTime")
             .context("LastScanTime not found")?;
-        return Ok(val);
+        Ok(val)
     }
     #[cfg(not(windows))]
     anyhow::bail!("Registry not available on non-Windows")
@@ -237,7 +237,7 @@ fn read_xpm_driver_cache() -> Result<HashMap<String, String>> {
             };
             map.insert(name, s);
         }
-        return Ok(map);
+        Ok(map)
     }
     #[cfg(not(windows))]
     Ok(HashMap::new())
@@ -250,17 +250,17 @@ fn get_bios_info() -> Result<BiosInfo> {
     {
         use wmi::{COMLibrary, WMIConnection};
         let com = COMLibrary::new().context("COM init")?;
-        let wmi = WMIConnection::new(com.into()).context("WMI connect")?;
+        let wmi = WMIConnection::new(com).context("WMI connect")?;
         let results: Vec<HashMap<String, wmi::Variant>> = wmi
             .raw_query("SELECT Version, ReleaseDate, Manufacturer, SerialNumber FROM Win32_BIOS")
             .context("WMI Win32_BIOS query")?;
         let row = results.into_iter().next().unwrap_or_default();
-        return Ok(BiosInfo {
+        Ok(BiosInfo {
             version: variant_str(&row, "Version"),
             release_date: variant_str(&row, "ReleaseDate"),
             manufacturer: variant_str(&row, "Manufacturer"),
             serial_number: variant_str(&row, "SerialNumber"),
-        });
+        })
     }
     #[cfg(not(windows))]
     Ok(BiosInfo::default())

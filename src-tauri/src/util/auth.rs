@@ -42,6 +42,7 @@ pub fn get_or_create_key() -> Result<Vec<u8>, String> {
     // different keys simultaneously on first startup.
     let mut file = std::fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&path)

@@ -40,7 +40,7 @@ pub fn list_cast_devices() -> Result<Vec<CastDevice>> {
 
 /// Start casting to a device by ID.
 #[cfg(windows)]
-pub fn start_casting(device_id: &str) -> Result<CastResult> {
+pub fn start_casting(_device_id: &str) -> Result<CastResult> {
     // Launch the Windows Connect quick action panel
     let result = std::process::Command::new("cmd")
         .args(["/c", "start", "ms-settings-connectabledevices:project"])

@@ -218,55 +218,6 @@ export interface AudioVolumeResult {
   muted: boolean;
 }
 
-export interface HardwareState {
-  battery: BatteryInfo | null;
-  display: DisplayInfo | null;
-  fan: FanInfo | null;
-  touchpad: TouchpadInfo | null;
-  system_info: SystemInfo | null;
-  performance_mode: PerformanceMode | null;
-  charging_threshold: number | null;
-  audio: AudioVolumeResult | null;
-}
-
-export interface HardwareRefreshErrors {
-  system_info: string | null;
-  battery: string | null;
-  display: string | null;
-  fan: string | null;
-  touchpad: string | null;
-  performance_mode: string | null;
-  charging_threshold: string | null;
-  audio: string | null;
-}
-
-const EMPTY_REFRESH_ERRORS: HardwareRefreshErrors = {
-  system_info: null,
-  battery: null,
-  display: null,
-  fan: null,
-  touchpad: null,
-  performance_mode: null,
-  charging_threshold: null,
-  audio: null,
-};
-
-function formatInvokeError(reason: unknown): string {
-  if (reason instanceof Error) return reason.message;
-  return String(reason);
-}
-
-const REFRESH_ERROR_LABELS: Record<keyof HardwareRefreshErrors, string> = {
-  system_info: 'system',
-  battery: 'battery',
-  display: 'display',
-  fan: 'fan',
-  touchpad: 'touchpad',
-  performance_mode: 'performance',
-  charging_threshold: 'charging',
-  audio: 'audio',
-};
-
 // ── Hardware hook ────────────────────────────────────────────────────────────
 
 export function useHardware() {
@@ -279,16 +230,14 @@ export function useHardware() {
   const [lastPerfResult, setLastPerfResult] = useState<PerformanceResult | null>(null);
   const [chargingThreshold, setChargingThresholdState] = useState<number>(80);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshErrors, setRefreshErrors] = useState<HardwareRefreshErrors>(EMPTY_REFRESH_ERRORS);
+  const [error] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [loadingUpdate, setLoadingUpdate] = useState(false);
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
   const [audioState, setAudioState] = useState<AudioVolumeResult | null>(null);
 
-  const hasLoadedOnce = useRef(false);
-  // Prevent the 2 s poll from overwriting optimistic touchpad state immediately
+  // Prevent the 2 s fast poll from overwriting optimistic touchpad state immediately
   // after a user write. Cleared automatically once the lock expires.
   const touchpadDirtyUntil = useRef<number>(0);
   const touchpadRef = useRef<TouchpadInfo | null>(null);
@@ -298,89 +247,107 @@ export function useHardware() {
   const chargingThresholdRef = useRef<number>(80);
   const audioStateRef = useRef<AudioVolumeResult | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!hasLoadedOnce.current) setLoading(true);
+  // ── Tiered polling (S11-002) ─────────────────────────────────────────────
+  // Fast tier: 2 s — fan speed, CPU temp, GPU temp, CPU usage, GPU usage
+  // Slow tier: 15 s — battery, display, touchpad
+  // Poll-once: system info — fetched on mount only
 
-    const nextErrors: HardwareRefreshErrors = { ...EMPTY_REFRESH_ERRORS };
+  const FAST_POLL_INTERVAL = 2000;
+  const SLOW_POLL_INTERVAL = 15000;
 
+  const fastPoll = useCallback(async () => {
     try {
-      const state = await invoke<HardwareState>('get_hardware_state_batch');
-
-      if (state.system_info !== null) setSystemInfo(state.system_info);
-      else nextErrors.system_info = 'no data';
-
-      if (state.battery !== null) setBattery(state.battery);
-      else nextErrors.battery = 'no data';
-
-      if (state.display !== null) setDisplay(state.display);
-      else nextErrors.display = 'no data';
-
-      if (state.fan !== null) setFan(state.fan);
-      else nextErrors.fan = 'no data';
-
-      // Only update touchpad from poll when no user write is in flight.
-      if (state.touchpad !== null && Date.now() >= touchpadDirtyUntil.current) {
-        setTouchpad(state.touchpad);
-      } else if (state.touchpad === null) {
-        nextErrors.touchpad = 'no data';
+      const [fanResult, systemResult] = await Promise.all([
+        invoke<FanInfo>('get_fan_info'),
+        invoke<SystemInfo>('get_system_info'),
+      ]);
+      setFan(fanResult);
+      if (systemResult) {
+        setSystemInfo(systemResult);
       }
-
-      if (state.performance_mode !== null) setPerformanceModeState(state.performance_mode);
-      else nextErrors.performance_mode = 'no data';
-
-      if (state.charging_threshold !== null) setChargingThresholdState(state.charging_threshold);
-      else nextErrors.charging_threshold = 'no data';
-
-      if (state.audio !== null) setAudioState(state.audio);
-      else nextErrors.audio = 'no data';
     } catch (e) {
-      nextErrors.system_info = formatInvokeError(e);
-      nextErrors.battery = formatInvokeError(e);
-      nextErrors.display = formatInvokeError(e);
-      nextErrors.fan = formatInvokeError(e);
-      nextErrors.touchpad = formatInvokeError(e);
-      nextErrors.performance_mode = formatInvokeError(e);
-      nextErrors.charging_threshold = formatInvokeError(e);
-      nextErrors.audio = formatInvokeError(e);
+      console.error('Fast poll failed:', e);
     }
-
-    setRefreshErrors(nextErrors);
-    const failedSubsystems = Object.entries(nextErrors)
-      .filter(([, value]) => Boolean(value))
-      .map(([key]) => REFRESH_ERROR_LABELS[key as keyof HardwareRefreshErrors]);
-    setError(failedSubsystems.length ? `Refresh failed for: ${failedSubsystems.join(', ')}` : null);
-
-    hasLoadedOnce.current = true;
-    setLoading(false);
   }, []);
 
+  const slowPoll = useCallback(async () => {
+    try {
+      const [batteryResult, displayResult, touchpadResult] = await Promise.all([
+        invoke<BatteryInfo>('get_battery_info'),
+        invoke<DisplayInfo>('get_display_info'),
+        invoke<TouchpadInfo>('get_touchpad_info'),
+      ]);
+      if (batteryResult !== null) setBattery(batteryResult);
+      if (displayResult !== null) setDisplay(displayResult);
+      // Only update touchpad from poll when no user write is in flight.
+      if (touchpadResult !== null && Date.now() >= touchpadDirtyUntil.current) {
+        setTouchpad(touchpadResult);
+      }
+    } catch (e) {
+      console.error('Slow poll failed:', e);
+    }
+  }, []);
+
+  const initialLoadRef = useRef(false);
+
   useEffect(() => {
-    const refreshIfVisible = () => {
+    const refreshIfVisible = (pollFn: () => Promise<void>) => {
       // The tray popup window is pre-created and often kept hidden.
       // Skip polling while hidden to avoid background WMI/query churn.
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
         return;
       }
-      void refresh();
+      void pollFn();
     };
 
-    refreshIfVisible();
-    // Poll every 2 s while the webview is visible so external hardware changes
-    // (Fn brightness keys, power events, fan fluctuations) stay responsive.
-    const interval = setInterval(refreshIfVisible, 2000);
+    // Initial load: fetch everything once + system info (poll-once)
+    if (!initialLoadRef.current) {
+      initialLoadRef.current = true;
+      setLoading(true);
+      const doInitialLoad = async () => {
+        try {
+          const [fanResult, systemResult, batteryResult, displayResult, touchpadResult] =
+            await Promise.all([
+              invoke<FanInfo>('get_fan_info'),
+              invoke<SystemInfo>('get_system_info'),
+              invoke<BatteryInfo>('get_battery_info'),
+              invoke<DisplayInfo>('get_display_info'),
+              invoke<TouchpadInfo>('get_touchpad_info'),
+            ]);
+          setFan(fanResult);
+          setSystemInfo(systemResult);
+          if (batteryResult !== null) setBattery(batteryResult);
+          if (displayResult !== null) setDisplay(displayResult);
+          if (touchpadResult !== null) setTouchpad(touchpadResult);
+        } catch (e) {
+          console.error('Initial hardware load failed:', e);
+        } finally {
+          setLoading(false);
+        }
+      };
+      void doInitialLoad();
+    }
+
+    // Fast polling interval
+    const fastInterval = setInterval(() => refreshIfVisible(fastPoll), FAST_POLL_INTERVAL);
+
+    // Slow polling interval
+    const slowInterval = setInterval(() => refreshIfVisible(slowPoll), SLOW_POLL_INTERVAL);
 
     const onVisibilityChange = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        void refresh();
+        void fastPoll();
+        void slowPoll();
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      clearInterval(interval);
+      clearInterval(fastInterval);
+      clearInterval(slowInterval);
     };
-  }, [refresh]);
+  }, [fastPoll, slowPoll]);
 
   const setPerformanceMode = useCallback(async (mode: PerformanceMode) => {
     const snap = performanceModeRef.current;
@@ -802,20 +769,32 @@ export function useHardware() {
     void refreshHardwareProfile();
   }, [refreshHardwareProfile]);
 
+  // ── Split useMemo into logical groups (S11-003) ──────────────────────────
+  const fanState = useMemo(
+    () => ({ fan, performanceMode, lastPerfResult, chargingThreshold }),
+    [fan, performanceMode, lastPerfResult, chargingThreshold],
+  );
+
+  const batteryState = useMemo(() => battery, [battery]);
+  const displayState = useMemo(() => display, [display]);
+  const touchpadState = useMemo(() => touchpad, [touchpad]);
+  const systemState = useMemo(() => systemInfo, [systemInfo]);
+
+  // Flat wrapper: keeps the old interface working for existing callers
   return useMemo(
     () => ({
-      systemInfo,
-      battery,
-      display,
-      fan,
-      touchpad,
-      performanceMode,
-      lastPerfResult,
-      chargingThreshold,
+      ...fanState,
+      ...systemState,
+      battery: batteryState,
+      display: displayState,
+      touchpad: touchpadState,
+      systemInfo: systemState,
+      fan: fanState.fan,
+      performanceMode: fanState.performanceMode,
+      lastPerfResult: fanState.lastPerfResult,
+      chargingThreshold: fanState.chargingThreshold,
       loading,
       error,
-      refreshErrors,
-      refresh,
       setPerformanceMode,
       setChargingThreshold,
       setBrightness,
@@ -855,18 +834,13 @@ export function useHardware() {
       setMasterMute,
     }),
     [
-      systemInfo,
-      battery,
-      display,
-      fan,
-      touchpad,
-      performanceMode,
-      lastPerfResult,
-      chargingThreshold,
+      fanState,
+      systemState,
+      batteryState,
+      displayState,
+      touchpadState,
       loading,
       error,
-      refreshErrors,
-      refresh,
       setPerformanceMode,
       setChargingThreshold,
       setBrightness,

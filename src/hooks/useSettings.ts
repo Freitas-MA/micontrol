@@ -66,7 +66,8 @@ function loadSettings(): AppSettings {
 
 /** Persist non-secret settings to localStorage (API key excluded). */
 function persistSettings(settings: AppSettings): void {
-  const { openai_api_key: _, ...safe } = settings;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { openai_api_key, ...safe } = settings;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
 }
 
@@ -223,89 +224,39 @@ export function useSettings() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Sends system context to the configured AI model and returns the analysis text. */
   async function analyzeSystem(ctx: SystemContext): Promise<string> {
-    if (!settings.openai_api_key.trim()) {
-      throw new Error('api_key_missing');
-    }
-
     // Check telemetry consent before sending data
     const consent = await getTelemetryConsent();
     if (consent !== 'granted') {
       throw new Error('consent_denied');
     }
 
-    const baseUrl = settings.openai_base_url.replace(/\/+$/, '');
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.openai_api_key.trim()}`,
-      },
-      body: JSON.stringify({
-        model: settings.openai_model || 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a hardware optimization assistant specialising in Xiaomi laptops running Windows. Give clear, actionable advice in 200 words or less.',
-          },
-          { role: 'user', content: buildPrompt(ctx) },
-        ],
-        max_tokens: 700,
-        temperature: 0.3,
-      }),
+    // Build the prompt locally, send it to the backend command
+    const systemContext = buildPrompt(ctx);
+    const result = await invoke<string>('analyze_system', {
+      systemContext,
+      baseUrl: settings.openai_base_url,
+      model: settings.openai_model || 'gpt-4o-mini',
     });
-
-    if (!res.ok) {
-      let detail = '';
-      try {
-        const err = await res.json();
-        detail = err?.error?.message ?? JSON.stringify(err);
-      } catch {
-        detail = await res.text();
-      }
-      throw new Error(`API ${res.status}: ${detail}`);
-    }
-
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    return json.choices?.[0]?.message?.content?.trim() ?? 'No response from model.';
+    return result;
   }
 
-  /** Quick connectivity + auth test — sends a minimal prompt. */
+  /** Quick connectivity + auth test — sends a minimal prompt via backend. */
   async function testConnection(): Promise<void> {
-    if (!settings.openai_api_key.trim()) {
-      throw new Error('api_key_missing');
-    }
-
     // Check telemetry consent before sending any data to the API
     const consent = await getTelemetryConsent();
     if (consent !== 'granted') {
       throw new Error('consent_denied');
     }
 
-    const baseUrl = settings.openai_base_url.replace(/\/+$/, '');
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.openai_api_key.trim()}`,
-      },
-      body: JSON.stringify({
-        model: settings.openai_model || 'gpt-4o-mini',
-        messages: [{ role: 'user', content: 'Reply with the single word OK.' }],
-        max_tokens: 5,
-      }),
+    await invoke<string>('test_connection', {
+      baseUrl: settings.openai_base_url,
+      model: settings.openai_model || 'gpt-4o-mini',
     });
-
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-      throw new Error(`API ${res.status}: ${err?.error?.message ?? res.statusText}`);
-    }
   }
 
   /**
@@ -317,7 +268,6 @@ export function useSettings() {
     hwCtx: SystemContext,
     language: string,
   ): Promise<string> {
-    if (!settings.openai_api_key.trim()) throw new Error('api_key_missing');
     if (logs.length === 0) throw new Error('no_logs');
 
     // Check telemetry consent before sending data
@@ -397,40 +347,12 @@ ${topProcs || '  - No process data available'}
 
 Be concise. Use short paragraphs with emoji section headers. Max 300 words.`;
 
-    const baseUrl = settings.openai_base_url.replace(/\/+$/, '');
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.openai_api_key.trim()}`,
-      },
-      body: JSON.stringify({
-        model: settings.openai_model || 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a hardware optimization assistant for Xiaomi laptops. Always respond in ${langName}.`,
-          },
-          { role: 'user', content: prompt },
-        ],
-        max_tokens: 800,
-        temperature: 0.4,
-      }),
+    const result = await invoke<string>('analyze_system', {
+      systemContext: prompt,
+      baseUrl: settings.openai_base_url,
+      model: settings.openai_model || 'gpt-4o-mini',
     });
-
-    if (!res.ok) {
-      let detail = '';
-      try {
-        const err = await res.json();
-        detail = err?.error?.message ?? JSON.stringify(err);
-      } catch {
-        detail = await res.text();
-      }
-      throw new Error(`API ${res.status}: ${detail}`);
-    }
-
-    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return json.choices?.[0]?.message?.content?.trim() ?? 'No response from model.';
+    return result;
   }
 
   /** Load telemetry consent from the OS credential store. */

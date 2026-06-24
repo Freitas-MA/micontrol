@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use crate::hw::errors::{HardwareError, HardwareResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,7 +42,7 @@ struct EsifReadings {
     tdp_watts: Option<f32>,
 }
 
-fn get_esif_readings() -> Result<EsifReadings> {
+fn get_esif_readings() -> HardwareResult<EsifReadings> {
     #[cfg(windows)]
     {
         use crate::hw::wmi_cache;
@@ -119,7 +120,7 @@ fn get_esif_readings() -> Result<EsifReadings> {
     }
 }
 
-pub fn get_fan_info() -> Result<FanInfo> {
+pub fn get_fan_info() -> HardwareResult<FanInfo> {
     let speed_rpm = get_fan_rpm_wmi().unwrap_or(0);
     let esif = get_esif_readings().unwrap_or(EsifReadings {
         cpu_temp: 50.0,
@@ -144,7 +145,7 @@ pub fn get_fan_info() -> Result<FanInfo> {
     })
 }
 
-pub fn set_fan_mode(mode: FanMode, speed_percent: u8) -> Result<()> {
+pub fn set_fan_mode(mode: FanMode, speed_percent: u8) -> HardwareResult<()> {
     persist_fan_registry(&mode, speed_percent)?;
 
     match mode {
@@ -159,7 +160,7 @@ pub fn set_fan_mode(mode: FanMode, speed_percent: u8) -> Result<()> {
 
 // ── WMI helpers ─────────────────────────────────────────────────────────────
 
-fn get_fan_rpm_wmi() -> Result<u32> {
+fn get_fan_rpm_wmi() -> HardwareResult<u32> {
     #[cfg(windows)]
     {
         use crate::hw::wmi_cache;
@@ -187,7 +188,7 @@ fn get_fan_rpm_wmi() -> Result<u32> {
 
 // ── Registry persistence ─────────────────────────────────────────────────────
 
-fn persist_fan_registry(mode: &FanMode, speed_percent: u8) -> Result<()> {
+fn persist_fan_registry(mode: &FanMode, speed_percent: u8) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -258,7 +259,7 @@ fn persist_fan_registry(mode: &FanMode, speed_percent: u8) -> Result<()> {
     Ok(())
 }
 
-fn get_fan_mode_registry() -> Result<(FanMode, u8)> {
+fn get_fan_mode_registry() -> HardwareResult<(FanMode, u8)> {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
@@ -374,13 +375,13 @@ mod igcl_fan {
 /// accessible fans — expected on integrated-only platforms where the EC
 /// firmware manages the fan as a function of the active performance mode.
 #[cfg(windows)]
-fn with_igcl_fans<F>(f: F) -> Result<usize>
+fn with_igcl_fans<F>(f: F) -> HardwareResult<usize>
 where
-    F: Fn(igcl_fan::CtlFanHandle, &libloading::Library) -> Result<()>,
+    F: Fn(igcl_fan::CtlFanHandle, &libloading::Library) -> HardwareResult<()>,
 {
     use igcl_fan::*;
 
-    crate::hw::display::with_igcl_device_pub(|device, lib| unsafe {
+    let count = crate::hw::display::with_igcl_device_pub(|device, lib| unsafe {
         // SAFETY: device is a valid IGCL device handle from ctlEnumerateDevices. The
         // ctlEnumFans function returns fan handles owned by IGCL; we iterate them immediately
         // and do not retain handles after the closure ends.
@@ -397,7 +398,7 @@ where
         let mut handles = vec![std::ptr::null_mut::<std::ffi::c_void>(); count as usize];
         let rc = ctl_enum_fans(device, &mut count, handles.as_mut_ptr());
         if rc != 0 {
-            anyhow::bail!("ctlEnumFans failed: {rc:#x}");
+            return Err(HardwareError::Display(format!("ctlEnumFans failed: {rc:#x}")).into());
         }
 
         for &fan in &handles[..count as usize] {
@@ -405,17 +406,19 @@ where
         }
         Ok(count as usize)
     })
+    .map_err(|e: anyhow::Error| HardwareError::from(e))?;
+    Ok(count)
 }
 
 #[cfg(not(windows))]
-fn with_igcl_fans<F>(_f: F) -> Result<usize>
+fn with_igcl_fans<F>(_f: F) -> HardwareResult<usize>
 where
-    F: Fn(*mut std::ffi::c_void, &libloading::Library) -> Result<()>,
+    F: Fn(*mut std::ffi::c_void, &libloading::Library) -> HardwareResult<()>,
 {
     Ok(0)
 }
 
-fn set_fan_auto_igcl() -> Result<()> {
+fn set_fan_auto_igcl() -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use igcl_fan::*;
@@ -428,7 +431,9 @@ fn set_fan_auto_igcl() -> Result<()> {
                 .context("ctlFanSetDefaultMode")?;
             let rc = set_default(fan);
             if rc != 0 {
-                anyhow::bail!("ctlFanSetDefaultMode: {rc:#x}");
+                return Err(HardwareError::Display(format!(
+                    "ctlFanSetDefaultMode: {rc:#x}"
+                )));
             }
             log::info!("[fan] IGCL ctlFanSetDefaultMode OK");
             Ok(())
@@ -440,7 +445,7 @@ fn set_fan_auto_igcl() -> Result<()> {
     Ok(())
 }
 
-fn set_fan_fixed_igcl(speed_percent: u8) -> Result<()> {
+fn set_fan_fixed_igcl(speed_percent: u8) -> HardwareResult<()> {
     #[cfg(windows)]
     {
         use igcl_fan::*;
@@ -461,7 +466,9 @@ fn set_fan_fixed_igcl(speed_percent: u8) -> Result<()> {
             };
             let rc = set_fixed(fan, &speed);
             if rc != 0 {
-                anyhow::bail!("ctlFanSetFixedSpeedMode {clamped}%: {rc:#x}");
+                return Err(HardwareError::Display(format!(
+                    "ctlFanSetFixedSpeedMode {clamped}%: {rc:#x}"
+                )));
             }
             log::info!("[fan] IGCL ctlFanSetFixedSpeedMode {clamped}% OK");
             Ok(())

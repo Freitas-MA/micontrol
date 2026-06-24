@@ -47,7 +47,11 @@ use {
 static PROFILE: OnceLock<RwLock<HardwareProfile>> = OnceLock::new();
 
 /// Access the global hardware profile.
-/// Returns `None` only if `init()` has not been called yet.
+///
+/// # Panics
+/// This function does NOT panic — it returns `None` if `init()` has not been
+/// called yet. After `init()` is called in `lib.rs::run()`, this always
+/// returns `Some`.
 pub fn global_profile() -> Option<HardwareProfile> {
     let lock = PROFILE.get()?;
     Some(lock.read().ok()?.clone())
@@ -401,7 +405,7 @@ fn probe_vhf_device() -> Option<String> {
             data3: 0x54F5,
             data4: [0xBB, 0x10, 0xC0, 0xD5, 0xEA, 0x4A, 0x4F, 0x4C],
         };
-        return enumerate_device_interfaces(&guid).into_iter().next();
+        enumerate_device_interfaces(&guid).into_iter().next()
     }
     #[cfg(not(windows))]
     None
@@ -458,7 +462,7 @@ fn probe_touchpad_hid() -> Option<String> {
             })
             .collect();
 
-        candidates.sort_by(|a, b| b.0.cmp(&a.0));
+        candidates.sort_by_key(|b| std::cmp::Reverse(b.0));
         if let Some((_, path, usage_page, output_len)) = candidates.into_iter().next() {
             log::info!(
                 "Touchpad HID found (touchpad-root matched): {} (UsagePage={:#X} OutputLen={})",
@@ -594,7 +598,7 @@ fn probe_mi_registry() -> bool {
     {
         use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-        return hklm.open_subkey(r"SOFTWARE\MI").is_ok();
+        hklm.open_subkey(r"SOFTWARE\MI").is_ok()
     }
     #[cfg(not(windows))]
     false
@@ -823,7 +827,7 @@ fn service_exists(name: &str) -> bool {
                 let _ = CloseServiceHandle(h);
             }
             let _ = CloseServiceHandle(scm);
-            return found;
+            found
         }
     }
     #[cfg(not(windows))]

@@ -33,9 +33,13 @@ export default function FanControl({ fan, onModeChange }: Props) {
     setMode(m);
     try {
       await onModeChange(m, m === 'fixed' ? speed : undefined);
-      addToast(t('fan.applied'), 'success');
+      addToast({ message: t('fan.applied'), type: 'success' });
     } catch (e) {
-      addToast(`${t('fan.error')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('fan.error')}: ${String(e)}`,
+        type: 'error',
+        onRetry: () => void handleModeChange(m),
+      });
     }
   };
 

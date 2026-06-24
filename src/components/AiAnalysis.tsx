@@ -412,7 +412,7 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
       };
       localStorage.setItem('micontrol_last_analysis_v1', JSON.stringify(result));
       setLastAnalysis(result);
-      addToast(t('aiAnalysis.analysis.success'), 'success');
+      addToast({ message: t('aiAnalysis.analysis.success'), type: 'success' });
 
       // Update schedule
       try {
@@ -435,7 +435,7 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
               ? t('ai.consentRequired')
               : msg;
       setAnalyzeError(displayMsg);
-      addToast(displayMsg, 'error');
+      addToast({ message: displayMsg, type: 'error', onRetry: handleAnalyze });
     } finally {
       setAnalyzing(false);
     }
@@ -516,12 +516,12 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
               checked={ai.settings.ai_analysis_enabled}
               onChange={(e) => {
                 ai.updateKey('ai_analysis_enabled', e.target.checked);
-                addToast(
-                  e.target.checked
+                addToast({
+                  message: e.target.checked
                     ? t('aiAnalysis.settings.toastEnabled')
                     : t('aiAnalysis.settings.toastDisabled'),
-                  'info',
-                );
+                  type: 'info',
+                });
               }}
             />
             <span className="toggle-track" />

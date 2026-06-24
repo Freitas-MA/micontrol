@@ -27,9 +27,13 @@ export default function ChargingThreshold({ threshold, onThresholdChange }: Prop
     try {
       await onThresholdChange(level);
       if (level !== 100) setLastLevel(level);
-      addToast(t('charging.applied'), 'success');
+      addToast({ message: t('charging.applied'), type: 'success' });
     } catch (e) {
-      addToast(`${t('charging.error')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('charging.error')}: ${String(e)}`,
+        type: 'error',
+        onRetry: () => handleChange(level),
+      });
     } finally {
       setSaving(false);
     }
@@ -41,9 +45,16 @@ export default function ChargingThreshold({ threshold, onThresholdChange }: Prop
       const level = checked ? lastLevel : 100;
       await onThresholdChange(level);
       if (level !== 100) setLastLevel(level);
-      addToast(checked ? t('charging.limitEnabled') : t('charging.limitDisabled'), 'info');
+      addToast({
+        message: checked ? t('charging.limitEnabled') : t('charging.limitDisabled'),
+        type: 'info',
+      });
     } catch (e) {
-      addToast(`${t('charging.error')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('charging.error')}: ${String(e)}`,
+        type: 'error',
+        onRetry: () => handleToggle(!checked),
+      });
     } finally {
       setSaving(false);
     }

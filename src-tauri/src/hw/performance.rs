@@ -20,11 +20,7 @@ use {
                 OPEN_EXISTING,
             },
             System::{
-                Registry::{
-                    RegCloseKey, RegCreateKeyExW, RegOpenKeyExW, RegSetValueExW,
-                    HKEY_LOCAL_MACHINE, KEY_WRITE, REG_CREATE_KEY_DISPOSITION, REG_DWORD,
-                    REG_OPTION_NON_VOLATILE,
-                },
+                Registry::{RegCloseKey, RegOpenKeyExW, HKEY_LOCAL_MACHINE},
                 IO::DeviceIoControl,
             },
         },
@@ -395,6 +391,10 @@ fn persist_to_registry(mode: PerformanceMode) -> Result<()> {
     #[cfg(windows)]
     {
         use windows::core::PCWSTR;
+        use windows::Win32::System::Registry::{
+            RegCreateKeyExW, RegSetValueExW, HKEY_LOCAL_MACHINE, KEY_WRITE,
+            REG_CREATE_KEY_DISPOSITION, REG_DWORD, REG_OPTION_NON_VOLATILE,
+        };
         unsafe {
             // SAFETY: Null-terminated wide strings; MaybeUninit<HKEY> written by RegCreateKeyExW
             // before assume_init. The DWORD value is a stack-local byte array with valid

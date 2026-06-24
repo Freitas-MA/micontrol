@@ -31,19 +31,13 @@ pub const ERAM_BASE: u64 = 0xFE0B0300;
 pub const ERAM_SIZE: usize = 0x100;
 /// Byte offset within ERAM of the ADPW field (AC adapter wattage, 1 byte, in whole Watts).
 pub const ERAM_ADPW_OFFSET: usize = 0x81;
-/// Physical address of ADPW: ERAM_BASE + ERAM_ADPW_OFFSET = 0xFE0B0381.
-#[allow(dead_code)]
-pub const ADPW_ADDR: u64 = ERAM_BASE + ERAM_ADPW_OFFSET as u64;
 
 /// Physical base of the IoTDevice state block (WiFi/bind status — not power data).
-#[allow(dead_code)]
-pub const ECRAM_BASE: u64 = 0xFE0B0F00;
-/// Physical base of the ACPI SMA2 region (charger / EC sideband area, meaning not decoded yet).
-pub const SMA2_BASE: u64 = 0xFE0B0A00;
-/// Size of the ACPI SMA2 region.
-pub const SMA2_SIZE: usize = 0x100;
-/// Physical base of the 8-byte IoTDriver status block.
 pub const IOT_STATUS_BASE: u64 = 0xFE0B0F00;
+/// Physical base of the ACPI SMA2 region.
+pub const SMA2_BASE: u64 = 0xFE0B0A00;
+/// Size of the SMA2 region.
+pub const SMA2_SIZE: usize = 0x100;
 /// Size of the 8-byte IoTDriver status block.
 pub const IOT_STATUS_SIZE: usize = 0x08;
 /// Physical address of the 0x78-byte IoTDevice state block.
@@ -53,7 +47,6 @@ pub const ECRAM_SENSOR_SIZE: usize = 0x78;
 /// IOCTL code for ECRAM read.
 const IOCTL_ECRAM_READ: u32 = 0x22E000;
 /// IOCTL code for ECRAM write.
-#[allow(dead_code)]
 const IOCTL_ECRAM_WRITE: u32 = 0x22E004;
 /// IoT driver device interface GUID: {AB7924A1-3162-4010-B33B-837E87E25FBC}
 #[cfg(windows)]
@@ -66,6 +59,7 @@ const IOT_GUID: windows::core::GUID = windows::core::GUID {
 
 /// Maximum valid byte index within the ACPI ERAM region.
 /// The ERAM is 0x100 bytes (indices 0x00..=0xFF).
+#[allow(dead_code)]
 pub const ECRAM_MAX_INDEX: usize = 0xFF;
 
 /// Total IOCTL buffer size (driver requires exactly 0x110 bytes for both in and out).
@@ -112,40 +106,6 @@ pub fn read_ecram(phys_addr: u64, byte_count: usize) -> Result<Vec<u8>> {
         let _ = (phys_addr, byte_count);
         anyhow::bail!("ECRAM read is only supported on Windows")
     }
-}
-
-/// Convenience: read the full 256-byte ACPI ERAM block (contains ADPW, BTCT, BTVT, etc.).
-#[allow(dead_code)]
-pub fn read_eram() -> Result<Vec<u8>> {
-    read_ecram(ERAM_BASE, ERAM_SIZE)
-}
-
-/// Convenience: read the full 256-byte ACPI SMA2 block.
-#[allow(dead_code)]
-pub fn read_sma2() -> Result<Vec<u8>> {
-    read_ecram(SMA2_BASE, SMA2_SIZE)
-}
-
-/// Convenience: read the 8-byte IoT status block.
-#[allow(dead_code)]
-pub fn read_iot_status_block() -> Result<Vec<u8>> {
-    read_ecram(IOT_STATUS_BASE, IOT_STATUS_SIZE)
-}
-
-/// Convenience: read the 0x78-byte IoTDevice state block at 0xFE0B0F08 (WiFi/bind status).
-#[allow(dead_code)]
-pub fn read_sensor_block() -> Result<Vec<u8>> {
-    read_ecram(ECRAM_SENSOR_BLOCK, ECRAM_SENSOR_SIZE)
-}
-
-/// Read all ECRAM bytes available from IoTService's known ranges.
-/// Returns ERAM (0xFE0B0300, 256 bytes) followed by IoTDevice block (0xFE0B0F08, 0x78 bytes).
-#[allow(dead_code)]
-pub fn read_all() -> Result<Vec<u8>> {
-    let mut buf = Vec::with_capacity(ERAM_SIZE + ECRAM_SENSOR_SIZE);
-    buf.extend_from_slice(&read_ecram(ERAM_BASE, ERAM_SIZE)?);
-    buf.extend_from_slice(&read_ecram(ECRAM_SENSOR_BLOCK, ECRAM_SENSOR_SIZE)?);
-    Ok(buf)
 }
 
 /// Try to extract AC adapter input power (in milliwatts) from ECRAM.
@@ -374,6 +334,7 @@ fn check_bytes_returned(bytes_returned: u32, expected_size: usize) -> Result<()>
 /// Validate that `index` is a valid byte offset within the ACPI ERAM region.
 ///
 /// Returns an error if `index > ECRAM_MAX_INDEX`.
+#[allow(dead_code)]
 fn validate_eram_index(index: usize) -> Result<()> {
     if index <= ECRAM_MAX_INDEX {
         return Ok(());
@@ -586,12 +547,9 @@ pub fn is_process_elevated() -> bool {
 }
 
 #[cfg(not(windows))]
-#[allow(dead_code)]
 pub fn is_process_elevated() -> bool {
     false
 }
-
-// ── ECRAM register map ────────────────────────────────────────────────────────
 
 /// Structured decode of all known ACPI ERAM fields.
 ///

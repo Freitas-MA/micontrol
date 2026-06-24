@@ -38,17 +38,20 @@ export default function AudioControl({
   const volume = audioState?.volume ?? 50;
   const muted = audioState?.muted ?? false;
 
+  const loadAudioDevices = async () => {
+    try {
+      const list = await invoke<AudioDeviceList>('get_audio_devices');
+      setDevices(list);
+    } catch (e) {
+      console.error('Failed to load audio devices:', e);
+      addToast({ message: t('audio.loadDevicesError'), type: 'error', onRetry: loadAudioDevices });
+    }
+  };
+
   // Load device list once on mount
   useEffect(() => {
-    void (async () => {
-      try {
-        const list = await invoke<AudioDeviceList>('get_audio_devices');
-        setDevices(list);
-      } catch (e) {
-        console.error('Failed to load audio devices:', e);
-        addToast(t('audio.loadDevicesError'), 'error');
-      }
-    })();
+    void loadAudioDevices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleVolumeChange = async (newVolume: number) => {

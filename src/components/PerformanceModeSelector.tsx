@@ -162,9 +162,13 @@ export default function PerformanceModeSelector({
   async function handleModeChange(key: PerformanceMode) {
     try {
       await onChange(key);
-      addToast(t('performance.applied'), 'success');
+      addToast({ message: t('performance.applied'), type: 'success' });
     } catch (e) {
-      addToast(`${t('performance.error')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('performance.error')}: ${String(e)}`,
+        type: 'error',
+        onRetry: () => handleModeChange(key),
+      });
     }
   }
 

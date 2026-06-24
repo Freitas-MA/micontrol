@@ -33,7 +33,7 @@ pub struct AudioVolumeResult {
 #[cfg(windows)]
 pub fn list_audio_devices() -> Result<AudioDeviceList> {
     use windows::Win32::Media::Audio::{
-        eCapture, eRender, IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+        eCapture, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
@@ -224,7 +224,6 @@ fn enumerate_devices(
     enumerator: &windows::Win32::Media::Audio::IMMDeviceEnumerator,
     data_flow: windows::Win32::Media::Audio::EDataFlow,
 ) -> Result<Vec<AudioDevice>> {
-    use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{eConsole, DEVICE_STATE_ACTIVE};
 
     // SAFETY: All COM calls are made through the windows crate's safe wrappers. The IMMDeviceEnumerator and its children are valid COM pointers obtained from CoCreateInstance / EnumAudioEndpoints.
@@ -240,7 +239,7 @@ fn enumerate_devices(
             let name =
                 get_device_friendly_name(&device).unwrap_or_else(|_| format!("Audio Device {}", i));
 
-            let is_default = default_device.as_ref().map_or(false, |d| {
+            let is_default = default_device.as_ref().is_some_and(|d| {
                 d.GetId().map(|s| s.to_string().unwrap_or_default()) == Ok(id.clone())
             });
 

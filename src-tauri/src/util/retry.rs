@@ -1,0 +1,35 @@
+//! Retry utilities for flaky operations (WMI, pipe, HID).
+
+/// Execute a fallible operation with one retry after a short delay.
+/// Logs when a retry is used.
+pub fn with_retry<T, E, F>(operation_name: &str, mut f: F) -> Result<T, E>
+where
+    F: FnMut() -> Result<T, E>,
+    E: std::fmt::Display,
+{
+    match f() {
+        Ok(result) => Ok(result),
+        Err(first_err) => {
+            log::warn!(
+                "Operation '{}' failed ({}), retrying in 100ms...",
+                operation_name,
+                first_err
+            );
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            match f() {
+                Ok(result) => {
+                    log::info!("Operation '{}' succeeded on retry", operation_name);
+                    Ok(result)
+                }
+                Err(second_err) => {
+                    log::error!(
+                        "Operation '{}' failed after retry: {}",
+                        operation_name,
+                        second_err
+                    );
+                    Err(second_err)
+                }
+            }
+        }
+    }
+}

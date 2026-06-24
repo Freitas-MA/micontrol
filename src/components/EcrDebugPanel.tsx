@@ -19,7 +19,7 @@ export default function EcrDebugPanel() {
       });
       setResult(data);
     } catch (e) {
-      addToast(`Read error: ${String(e)}`, 'error');
+      addToast({ message: `Read error: ${String(e)}`, type: 'error', onRetry: handleRead });
     } finally {
       setLoading(false);
     }
@@ -33,9 +33,9 @@ export default function EcrDebugPanel() {
         address,
         hexData,
       });
-      addToast('Write successful', 'success');
+      addToast({ message: 'Write successful', type: 'success' });
     } catch (e) {
-      addToast(`Write error: ${String(e)}`, 'error');
+      addToast({ message: `Write error: ${String(e)}`, type: 'error', onRetry: handleWrite });
     } finally {
       setLoading(false);
     }
@@ -47,7 +47,7 @@ export default function EcrDebugPanel() {
       const map = await invoke<string>('get_ecram_map');
       setResult(JSON.stringify(map, null, 2));
     } catch (e) {
-      addToast(`Map error: ${String(e)}`, 'error');
+      addToast({ message: `Map error: ${String(e)}`, type: 'error', onRetry: handleReadMap });
     } finally {
       setLoading(false);
     }

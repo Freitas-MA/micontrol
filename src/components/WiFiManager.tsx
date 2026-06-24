@@ -50,11 +50,15 @@ export default function WiFiManager() {
     setConnecting(true);
     try {
       await invoke('wifi_connect', { ssid, password: newPassword || null });
-      addToast(`Connected to "${ssid}"`, 'success');
+      addToast({ message: `Connected to "${ssid}"`, type: 'success' });
       setNewPassword('');
       void loadData();
     } catch (e) {
-      addToast(`Connect error: ${String(e)}`, 'error');
+      addToast({
+        message: `Connect error: ${String(e)}`,
+        type: 'error',
+        onRetry: () => handleConnect(ssid),
+      });
     } finally {
       setConnecting(false);
     }
@@ -63,10 +67,14 @@ export default function WiFiManager() {
   const handleDisconnect = async () => {
     try {
       await invoke('wifi_disconnect');
-      addToast('Disconnected', 'info');
+      addToast({ message: 'Disconnected', type: 'info' });
       void loadData();
     } catch (e) {
-      addToast(`Disconnect error: ${String(e)}`, 'error');
+      addToast({
+        message: `Disconnect error: ${String(e)}`,
+        type: 'error',
+        onRetry: handleDisconnect,
+      });
     }
   };
 

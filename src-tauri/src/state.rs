@@ -1,10 +1,37 @@
+use crate::hw::discovery::HardwareProfile;
 use serde::{Deserialize, Serialize};
+use std::sync::RwLock;
 
 /// Shared application state managed by Tauri.
-#[derive(Default)]
 pub struct AppState {
     pub performance_mode: std::sync::Mutex<PerformanceMode>,
     pub charging_threshold: std::sync::Mutex<u8>,
+    pub hardware_profile: RwLock<Option<HardwareProfile>>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            performance_mode: std::sync::Mutex::new(PerformanceMode::default()),
+            charging_threshold: std::sync::Mutex::new(0),
+            hardware_profile: RwLock::new(None),
+        }
+    }
+}
+
+impl AppState {
+    /// Get a clone of the hardware profile, or None if not yet initialized.
+    #[allow(dead_code)]
+    pub fn get_profile(&self) -> Option<HardwareProfile> {
+        self.hardware_profile.read().ok()?.clone()
+    }
+
+    /// Set the hardware profile.
+    pub fn set_profile(&self, profile: HardwareProfile) {
+        if let Ok(mut guard) = self.hardware_profile.write() {
+            *guard = Some(profile);
+        }
+    }
 }
 
 /// Performance modes supported by Xiaomi hardware.

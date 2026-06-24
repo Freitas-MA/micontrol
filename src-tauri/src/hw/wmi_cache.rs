@@ -44,56 +44,61 @@ impl WmiThreadCache {
     }
 }
 
-/// Execute a closure with the cached `ROOT\CIMV2` connection.
+/// Execute a closure with the cached `ROOT\CIMV2` connection, with one retry.
 ///
 /// On first call (or after [`invalidate`]), initialises COM and creates the
 /// connection. If the closure returns an error, the cache is invalidated so
 /// the next call will recreate the connection transparently.
 pub fn with_cimv2<F, T>(f: F) -> anyhow::Result<T>
 where
-    F: FnOnce(&WMIConnection) -> anyhow::Result<T>,
+    F: Fn(&WMIConnection) -> anyhow::Result<T>,
 {
-    WMI_CACHE.with(|cell| {
-        let mut cache_ref = cell.borrow_mut();
-        if cache_ref.is_none() {
-            *cache_ref = Some(WmiThreadCache::init()?);
-        }
-        let result = {
-            let c = cache_ref.as_ref().unwrap();
-            f(&c.cimv2)
-        };
-        if result.is_err() {
-            log::info!("WMI cache: cimv2 query failed, invalidating connection");
-            *cache_ref = None;
-        }
-        result
+    crate::util::retry::with_retry("WMI cimv2 query", || {
+        WMI_CACHE.with(|cell| {
+            let mut cache_ref = cell.borrow_mut();
+            if cache_ref.is_none() {
+                *cache_ref = Some(WmiThreadCache::init()?);
+            }
+            let result = {
+                let c = cache_ref.as_ref().unwrap();
+                f(&c.cimv2)
+            };
+            if result.is_err() {
+                log::info!("WMI cache: cimv2 query failed, invalidating connection");
+                *cache_ref = None;
+            }
+            result
+        })
     })
 }
 
-/// Execute a closure with the cached `ROOT\WMI` connection.
+/// Execute a closure with the cached `ROOT\WMI` connection, with one retry.
 ///
 /// Same semantics as [`with_cimv2`].
 pub fn with_wmi<F, T>(f: F) -> anyhow::Result<T>
 where
-    F: FnOnce(&WMIConnection) -> anyhow::Result<T>,
+    F: Fn(&WMIConnection) -> anyhow::Result<T>,
 {
-    WMI_CACHE.with(|cell| {
-        let mut cache_ref = cell.borrow_mut();
-        if cache_ref.is_none() {
-            *cache_ref = Some(WmiThreadCache::init()?);
-        }
-        let result = {
-            let c = cache_ref.as_ref().unwrap();
-            f(&c.wmi)
-        };
-        if result.is_err() {
-            log::info!("WMI cache: wmi query failed, invalidating connection");
-            *cache_ref = None;
-        }
-        result
+    crate::util::retry::with_retry("WMI wmi query", || {
+        WMI_CACHE.with(|cell| {
+            let mut cache_ref = cell.borrow_mut();
+            if cache_ref.is_none() {
+                *cache_ref = Some(WmiThreadCache::init()?);
+            }
+            let result = {
+                let c = cache_ref.as_ref().unwrap();
+                f(&c.wmi)
+            };
+            if result.is_err() {
+                log::info!("WMI cache: wmi query failed, invalidating connection");
+                *cache_ref = None;
+            }
+            result
+        })
     })
 }
 
+#[allow(dead_code)]
 /// Invalidate the cached connections on the current thread.
 ///
 /// The next call to [`with_cimv2`] or [`with_wmi`] will recreate them.

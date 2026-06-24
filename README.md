@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/mafsc/micontrol/branch/master/graph/badge.svg)](https://codecov.io/gh/mafsc/micontrol)
+
 # MiControl - Estado Atual da Documentação
 
 ## Aviso Importante

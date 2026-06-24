@@ -411,7 +411,8 @@
     "watts": "W",
     "unknown": "Unknown",
     "show": "Show",
-    "hide": "Hide"
+    "hide": "Hide",
+    "retry": "Retry"
   },
   "wifi": {
     "title": "WiFi Manager",
@@ -531,6 +532,7 @@
     "reset": "Reset to defaults",
     "storageNote": "API key is stored securely in Windows Credential Manager. It is sent to the AI provider when making analysis requests.",
     "apiKeyMissing": "API key not configured. Go to Settings to add your key.",
+    "customEndpointWarning": "Data is sent to a custom endpoint, not to OpenAI. Verify you trust this provider.",
     "privacy": "Privacy",
     "consentStatus": "Consent Status",
     "consentGranted": "Telemetry consent granted — AI features active",

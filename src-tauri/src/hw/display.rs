@@ -363,7 +363,7 @@ pub async fn adaptive_brightness_loop() {
         let value = next.round() as u8;
         // Hysteresis: skip the write if the new value is the same as last
         // (or within 1 pp) to avoid constant low-amplitude oscillations.
-        if last_set.map_or(false, |prev| (value as i16 - prev as i16).abs() < 2) {
+        if last_set.is_some_and(|prev| (value as i16 - prev as i16).abs() < 2) {
             continue;
         }
         let set_value = value;
@@ -699,13 +699,15 @@ pub fn get_hdr_state() -> bool {
             Ok(x) => x,
             Err(_) => return false,
         };
-        for i in 0..np as usize {
-            let mut info = DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO::default();
-            info.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
-                r#type: DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
-                size: std::mem::size_of::<DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO>() as u32,
-                adapterId: paths[i].targetInfo.adapterId,
-                id: paths[i].targetInfo.id,
+        for path in paths.iter().take(np as usize) {
+            let mut info = DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO {
+                header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                    r#type: DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
+                    size: std::mem::size_of::<DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO>() as u32,
+                    adapterId: path.targetInfo.adapterId,
+                    id: path.targetInfo.id,
+                },
+                ..Default::default()
             };
             // Pass pointer to the header (= base of struct, same address since header is field 0)
             let rc = DisplayConfigGetDeviceInfo(&mut info.header as *mut _);
@@ -735,13 +737,15 @@ fn set_hdr_ccd(enabled: bool) -> anyhow::Result<()> {
         let (np, _nm, paths, _modes) =
             query_display_config_retry().context("query display config")?;
         let mut last_err = 0i32;
-        for i in 0..np as usize {
-            let mut state = DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE::default();
-            state.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
-                r#type: DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
-                size: std::mem::size_of::<DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE>() as u32,
-                adapterId: paths[i].targetInfo.adapterId,
-                id: paths[i].targetInfo.id,
+        for path in paths.iter().take(np as usize) {
+            let mut state = DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE {
+                header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                    r#type: DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
+                    size: std::mem::size_of::<DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE>() as u32,
+                    adapterId: path.targetInfo.adapterId,
+                    id: path.targetInfo.id,
+                },
+                ..Default::default()
             };
             // bit 0 = enableAdvancedColor
             state.Anonymous.value = enabled as u32;
@@ -861,8 +865,10 @@ pub fn get_available_refresh_rates() -> Vec<u32> {
             // writes to the struct and does not retain the pointer. Comparison of dmPelsWidth,
             // dmPelsHeight, dmBitsPerPel, and dmDisplayFrequency reads the fields Windows
             // populated — no uninitialized data is read.
-            let mut cur = DEVMODEW::default();
-            cur.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+            let mut cur = DEVMODEW {
+                dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+                ..Default::default()
+            };
             // Query current mode to know the active resolution.
             let _ = EnumDisplaySettingsExW(
                 None,
@@ -875,8 +881,10 @@ pub fn get_available_refresh_rates() -> Vec<u32> {
             let mut seen: HashSet<u32> = HashSet::new();
             let mut idx = 0u32;
             loop {
-                let mut m = DEVMODEW::default();
-                m.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+                let mut m = DEVMODEW {
+                    dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+                    ..Default::default()
+                };
                 if !EnumDisplaySettingsExW(
                     None,
                     ENUM_DISPLAY_SETTINGS_MODE(idx),
@@ -928,8 +936,10 @@ pub fn set_refresh_rate(hz: u32) -> Result<()> {
             // SAFETY: DEVMODEW is POD with dmSize set. EnumDisplaySettingsExW populates the
             // current mode; we modify dmDisplayFrequency and dmFields before passing it to
             // ChangeDisplaySettingsExW which does not retain the pointer.
-            let mut mode = DEVMODEW::default();
-            mode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+            let mut mode = DEVMODEW {
+                dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+                ..Default::default()
+            };
             if !EnumDisplaySettingsExW(
                 None,
                 ENUM_CURRENT_SETTINGS,
@@ -971,7 +981,7 @@ fn get_refresh_rate() -> Result<u32> {
         use crate::hw::wmi_cache;
         use std::collections::HashMap;
 
-        if let Ok(result) = wmi_cache::with_cimv2(|wmi| {
+        if let Ok(Some(hz)) = wmi_cache::with_cimv2(|wmi| {
             let results: Vec<HashMap<String, wmi::Variant>> = wmi
                 .raw_query("SELECT CurrentRefreshRate FROM Win32_VideoController")
                 .unwrap_or_default();
@@ -984,9 +994,7 @@ fn get_refresh_rate() -> Result<u32> {
                 Ok(None)
             }
         }) {
-            if let Some(hz) = result {
-                return Ok(hz);
-            }
+            return Ok(hz);
         }
     }
     Ok(120)

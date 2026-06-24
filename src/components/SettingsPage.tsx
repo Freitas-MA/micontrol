@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { t, useLanguage } from '../hooks/useI18n';
 import type { AppSettings } from '../hooks/useSettings';
-import { DEFAULT_SETTINGS } from '../hooks/useSettings';
 import { invoke } from '@tauri-apps/api/core';
+import AiConfigForm from './AiConfigForm';
+import PrivacyConsentSection from './PrivacyConsentSection';
 
 interface DeleteDataReport {
   logs_deleted: boolean;
@@ -12,47 +13,14 @@ interface DeleteDataReport {
   errors: string[];
 }
 
-const PRESET_MODELS = [
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (fast, cheap)' },
-  { value: 'gpt-4o', label: 'GPT-4o (best quality)' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'custom', label: 'Custom (type below)' },
-];
-
 interface Props {
   settings: AppSettings;
   onSave: (s: AppSettings) => void;
   onTest: () => Promise<void>;
-  /** Current telemetry consent state */
   telemetryConsent: 'granted' | 'denied' | null;
-  /** Called when user clicks Revoke Consent */
   onRevokeConsent: () => Promise<void>;
-  /** Called when user clicks Grant Consent */
   onGrantConsent: () => Promise<void>;
-  /** Called when user clicks Privacy Policy link */
   onOpenPrivacyPolicy: () => void;
-}
-
-function FieldRow({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={{ marginBottom: 18 }}>
-      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-        {label}
-      </label>
-      {children}
-      {hint && (
-        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>{hint}</div>
-      )}
-    </div>
-  );
 }
 
 export default function SettingsPage({
@@ -65,64 +33,8 @@ export default function SettingsPage({
   onOpenPrivacyPolicy,
 }: Props) {
   const { locale, setLanguage, supported } = useLanguage();
-  const [draft, setDraft] = useState<AppSettings>(settings);
-  const [showKey, setShowKey] = useState(false);
-  const [customModel, setCustomModel] = useState(
-    PRESET_MODELS.some((m) => m.value === settings.openai_model && m.value !== 'custom')
-      ? ''
-      : settings.openai_model,
-  );
-  const [selectedPreset, setSelectedPreset] = useState(
-    PRESET_MODELS.some((m) => m.value === settings.openai_model) ? settings.openai_model : 'custom',
-  );
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
-  const [testMsg, setTestMsg] = useState('');
-  const [dirty, setDirty] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState<DeleteDataReport | null>(null);
-
-  function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    setDraft((d) => ({ ...d, [key]: value }));
-    setDirty(true);
-  }
-
-  function handlePresetChange(preset: string) {
-    setSelectedPreset(preset);
-    if (preset !== 'custom') {
-      update('openai_model', preset);
-    }
-  }
-
-  function handleCustomModelChange(val: string) {
-    setCustomModel(val);
-    update('openai_model', val);
-  }
-
-  function handleSave() {
-    onSave(draft);
-    setDirty(false);
-  }
-
-  async function handleTest() {
-    handleSave();
-    setTestStatus('testing');
-    setTestMsg('');
-    try {
-      await onTest();
-      setTestStatus('ok');
-      setTestMsg(t('settings.testOk'));
-    } catch (e) {
-      setTestStatus('error');
-      setTestMsg(String(e).replace(/^Error:\s*/, ''));
-    }
-  }
-
-  function handleReset() {
-    setDraft(DEFAULT_SETTINGS);
-    setSelectedPreset(DEFAULT_SETTINGS.openai_model);
-    setCustomModel('');
-    setDirty(true);
-  }
 
   const handleDeleteAllData = async () => {
     if (!confirm(t('settings.confirmDelete'))) return;
@@ -150,7 +62,7 @@ export default function SettingsPage({
       {/* Language selector */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title">{t('settings.language')}</div>
-        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 12 }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-muted)', marginBottom: 12 }}>
           {t('settings.languageDesc')}
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -166,230 +78,21 @@ export default function SettingsPage({
         </div>
       </div>
 
-      {/* AI settings */}
-      <div className="card">
-        <div className="card-title">{t('settings.aiTitle')}</div>
-        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
-          {t('settings.aiSubtitle')}
-        </p>
+      <AiConfigForm
+        settings={settings}
+        onUpdate={(patch) => onSave({ ...settings, ...patch })}
+        onTestConnection={onTest}
+      />
 
-        {/* API Key */}
-        <FieldRow label={t('settings.apiKey')} hint={t('settings.apiKeyHint')}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type={showKey ? 'text' : 'password'}
-              value={draft.openai_api_key}
-              onChange={(e) => update('openai_api_key', e.target.value)}
-              placeholder="sk-..."
-              spellCheck={false}
-              autoComplete="off"
-              style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
-            />
-            <button
-              onClick={() => setShowKey((v) => !v)}
-              className="btn-ghost btn-sm"
-              title={showKey ? t('settings.hideKey') : t('settings.showKey')}
-            >
-              {showKey ? '🙈' : '👁'}
-            </button>
-          </div>
-        </FieldRow>
-
-        {/* Base URL */}
-        <FieldRow label={t('settings.baseUrl')} hint={t('settings.baseUrlHint')}>
-          <input
-            type="text"
-            value={draft.openai_base_url}
-            onChange={(e) => update('openai_base_url', e.target.value)}
-            placeholder="https://api.openai.com/v1"
-          />
-        </FieldRow>
-
-        {/* Model */}
-        <FieldRow label={t('settings.model')} hint={t('settings.modelHint')}>
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 8,
-              marginBottom: selectedPreset === 'custom' ? 8 : 0,
-            }}
-          >
-            {PRESET_MODELS.map((m) => (
-              <button
-                key={m.value}
-                onClick={() => handlePresetChange(m.value)}
-                className={`chip-btn ${selectedPreset === m.value ? 'active' : ''}`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-          {selectedPreset === 'custom' && (
-            <input
-              type="text"
-              value={customModel}
-              onChange={(e) => handleCustomModelChange(e.target.value)}
-              placeholder="e.g. llama3, mistral, gpt-4-vision-preview"
-            />
-          )}
-        </FieldRow>
-
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn-primary" disabled={!dirty} onClick={handleSave}>
-            {t('settings.save')}
-          </button>
-          <button
-            className="btn-ghost"
-            disabled={!draft.openai_api_key.trim() || testStatus === 'testing'}
-            onClick={() => void handleTest()}
-          >
-            {testStatus === 'testing' ? t('settings.testing') : t('settings.testConnection')}
-          </button>
-          <button className="btn-ghost btn-sm" onClick={handleReset}>
-            {t('settings.reset')}
-          </button>
-        </div>
-
-        {/* Test result */}
-        {testMsg && (
-          <div
-            role={testStatus === 'error' ? 'alert' : 'status'}
-            style={{
-              marginTop: 12,
-              padding: '8px 12px',
-              borderRadius: 6,
-              fontSize: 12,
-              background: testStatus === 'ok' ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
-              color:
-                testStatus === 'ok'
-                  ? 'var(--color-success, #4ade80)'
-                  : 'var(--color-danger, #f87171)',
-              border: `1px solid ${testStatus === 'ok' ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'}`,
-            }}
-          >
-            {testStatus === 'ok' ? '✓ ' : '✗ '}
-            {testMsg}
-          </div>
-        )}
-
-        {/* Storage notice */}
-        <p
-          style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 16, marginBottom: 0 }}
-        >
-          🔒 {t('settings.storageNote')}
-        </p>
-      </div>
-
-      {/* Privacy & Consent */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title">{t('settings.privacy')}</div>
-        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-          {t('settings.consentStatus')}:{' '}
-          <strong
-            style={{
-              color:
-                telemetryConsent === 'granted'
-                  ? 'var(--color-success, #4ade80)'
-                  : telemetryConsent === 'denied'
-                    ? 'var(--color-danger, #f87171)'
-                    : 'var(--color-text-muted)',
-            }}
-          >
-            {telemetryConsent === 'granted'
-              ? t('privacy.consentGranted')
-              : telemetryConsent === 'denied'
-                ? t('privacy.consentDenied')
-                : t('privacy.consentNotSet')}
-          </strong>
-        </p>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button
-            className="btn-ghost"
-            onClick={() => void onOpenPrivacyPolicy()}
-            style={{ fontSize: 12 }}
-          >
-            📄 {t('settings.privacyPolicy')}
-          </button>
-          {telemetryConsent === 'granted' && (
-            <button
-              className="btn-ghost"
-              onClick={() => void onRevokeConsent()}
-              style={{
-                fontSize: 12,
-                color: 'var(--color-danger, #f87171)',
-                borderColor: 'var(--color-danger, #f87171)',
-              }}
-            >
-              🛑 {t('settings.revokeConsent')}
-            </button>
-          )}
-          {telemetryConsent === 'denied' && (
-            <button
-              className="btn-primary"
-              onClick={() => void onGrantConsent()}
-              style={{ fontSize: 12 }}
-            >
-              ✅ {t('settings.grantConsent')}
-            </button>
-          )}
-        </div>
-        <p
-          style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 12, marginBottom: 0 }}
-        >
-          🔒 {t('settings.consentStatus')}{' '}
-          {telemetryConsent === 'granted'
-            ? t('settings.consentGranted')
-            : telemetryConsent === 'denied'
-              ? t('settings.consentDenied')
-              : t('settings.consentNotSet')}
-        </p>
-      </div>
-
-      {/* Data Deletion — GDPR Art.17 */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title">{t('settings.dataDeletion')}</div>
-        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-          {t('settings.dataDeletionDesc')}
-        </p>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button
-            className="btn-ghost"
-            onClick={() => void handleDeleteAllData()}
-            disabled={isDeleting}
-            style={{
-              fontSize: 12,
-              color: 'var(--color-danger, #f87171)',
-              borderColor: 'var(--color-danger, #f87171)',
-            }}
-          >
-            {isDeleting ? t('settings.deleting') : `🗑 ${t('settings.deleteAllData')}`}
-          </button>
-        </div>
-        {deleteResult && (
-          <div
-            role="alert"
-            style={{
-              marginTop: 12,
-              padding: '8px 12px',
-              borderRadius: 6,
-              fontSize: 12,
-              background:
-                deleteResult.errors.length > 0 ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)',
-              color:
-                deleteResult.errors.length > 0
-                  ? 'var(--color-danger, #f87171)'
-                  : 'var(--color-success, #4ade80)',
-              border: `1px solid ${deleteResult.errors.length > 0 ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`,
-            }}
-          >
-            {deleteResult.errors.length > 0
-              ? `✗ ${t('settings.deleteError')}`
-              : `✓ ${t('settings.deleteSuccess')}`}
-          </div>
-        )}
-      </div>
+      <PrivacyConsentSection
+        consent={telemetryConsent}
+        onGrant={onGrantConsent}
+        onRevoke={onRevokeConsent}
+        onOpenPrivacyPolicy={onOpenPrivacyPolicy}
+        onDeleteAllData={handleDeleteAllData}
+        deleteResult={deleteResult}
+        isDeleting={isDeleting}
+      />
     </>
   );
 }

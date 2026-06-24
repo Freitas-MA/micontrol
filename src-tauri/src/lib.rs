@@ -4,8 +4,9 @@ mod elev_bridge;
 pub mod elevated;
 mod hw;
 mod state;
-mod util;
+pub mod util;
 
+use commands::ai::{analyze_system, test_connection};
 use commands::ai_logs::{open_ai_logs_dir, read_ai_perf_logs, write_ai_perf_log};
 use commands::hardware::{
     get_audio_devices, get_audio_volume, get_cast_devices, get_charging_threshold, get_ecram_map,
@@ -126,6 +127,16 @@ pub fn run() {
         }
     }
 
+    // ── Initialization order ─────────────────────────────────────────────────
+    // 1. Create Tauri builder with managed state
+    // 2. Initialize logging
+    // 3. Detect hardware profile (discovery::detect_hardware)
+    // 4. Initialize global profile (discovery::init)
+    // 5. Set profile in AppState
+    // 6. Verify task elevation (elevated::verify_task_elevation)
+    // 7. Start hardware polling
+    // 8. Run Tauri application
+
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
@@ -227,6 +238,9 @@ pub fn run() {
             set_adaptive_refresh_rate,
             // Process list
             get_process_list,
+            // AI analysis
+            analyze_system,
+            test_connection,
             // AI performance logs
             write_ai_perf_log,
             read_ai_perf_logs,
@@ -250,6 +264,11 @@ pub fn run() {
                 .app_data_dir()
                 .ok();
             crate::hw::discovery::init(data_dir);
+
+            // Sync the discovered profile into Tauri managed state
+            if let Some(profile) = crate::hw::discovery::global_profile() {
+                app.state::<AppState>().set_profile(profile);
+            }
 
             // Start keyboard hook (intercepts Xiaomi AI / PCManager / Copilot keys)
             crate::hw::hotkeys::start_hook();
@@ -336,7 +355,7 @@ pub fn run() {
                         app.exit(0);
                     }
                     "open" => {
-                        let _ = open_window_sync(app);
+                        open_window_sync(app);
                     }
                     _ => {}
                 })
@@ -394,7 +413,7 @@ pub fn run() {
                         api.prevent_close();
                     }
                 }
-                tauri::WindowEvent::Focused(false) => {
+                tauri::WindowEvent::Focused(false) if window.label() == "tray" => {
                     // Auto-hide tray popup when it loses focus.
                     // Guard 1: ignore focus-loss for 500 ms after the popup was shown
                     //          (Windows gives focus back to the taskbar right after our
@@ -402,15 +421,13 @@ pub fn run() {
                     // Guard 2: record the hide timestamp so toggle_tray_popup can tell
                     //          whether the focus-loss was caused by a tray-icon click
                     //          (mouse-down steals focus before mouse-up fires Click).
-                    if window.label() == "tray" {
-                        let age = now_ms().saturating_sub(TRAY_SHOWN_AT_MS.load(Ordering::Relaxed));
-                        log::info!("[tray] Focused(false): age_since_shown={age}ms");
-                        if age < 500 {
-                            return; // too soon after show — ignore this focus-loss
-                        }
-                        TRAY_HIDDEN_AT_MS.store(now_ms(), Ordering::Relaxed);
-                        window.hide().ok();
+                    let age = now_ms().saturating_sub(TRAY_SHOWN_AT_MS.load(Ordering::Relaxed));
+                    log::info!("[tray] Focused(false): age_since_shown={age}ms");
+                    if age < 500 {
+                        return; // too soon after show — ignore this focus-loss
                     }
+                    TRAY_HIDDEN_AT_MS.store(now_ms(), Ordering::Relaxed);
+                    window.hide().ok();
                 }
                 _ => {}
             }

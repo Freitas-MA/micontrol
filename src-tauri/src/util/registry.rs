@@ -181,7 +181,5 @@ impl Drop for RegKeyGuard {
 
 #[allow(dead_code)]
 fn ptr_cast_slice<T>(s: &[T]) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(s.as_ptr() as *const u8, s.len() * std::mem::size_of::<T>())
-    }
+    unsafe { std::slice::from_raw_parts(s.as_ptr() as *const u8, std::mem::size_of_val(s)) }
 }

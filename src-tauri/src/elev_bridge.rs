@@ -4,7 +4,7 @@
 //!   1. Write a JSON command to `%LOCALAPPDATA%\MiControl\elev_cmd_<request_id>.json`
 //!   2. Trigger the `MiControlElevated` scheduled task via `schtasks /run`
 //!      (the task was created at install time with RunLevel = Highest,
-//!       so it runs with administrator rights, no UAC prompt)
+//!      so it runs with administrator rights, no UAC prompt)
 //!   3. Poll `%LOCALAPPDATA%\MiControl\elev_result_<request_id>.json` until it appears
 //!      (timeout: 15 s)
 //!   4. Return the `data` field on success, or `Err(error_message)`.

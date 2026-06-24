@@ -122,10 +122,6 @@ export default function TrayPopup({ hardware }: Props) {
     }
   }, [audioState?.volume, isAdjustingVolume]);
 
-  useEffect(() => {
-    // Audio is polled by useHardware hook every 2s — no need to duplicate here
-  }, []);
-
   // Audio is polled by useHardware hook globally — no duplicate poll needed here
 
   const openMainWindow = async () => {

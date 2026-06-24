@@ -26,6 +26,7 @@ pub fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     })
 }
 
+#[allow(dead_code)]
 /// Read-lock a `RwLock`, recovering from poison.
 pub fn read_or_recover<T>(rwlock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
     rwlock.read().unwrap_or_else(|e| {
@@ -34,6 +35,7 @@ pub fn read_or_recover<T>(rwlock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
     })
 }
 
+#[allow(dead_code)]
 /// Write-lock a `RwLock`, recovering from poison.
 pub fn write_or_recover<T>(rwlock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     rwlock.write().unwrap_or_else(|e| {
@@ -76,6 +78,7 @@ pub fn install_panic_hook() {
     }));
 }
 
+#[allow(dead_code)]
 /// Spawn a tokio task that catches panics and logs them, preventing a single
 /// task's panic from crashing the runtime.
 ///
@@ -86,7 +89,7 @@ where
     T: Send + 'static,
 {
     tokio::spawn(async move {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || f()));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
         match result {
             Ok(value) => Some(value),
             Err(e) => {

@@ -37,9 +37,6 @@ const IPC_HEADER_SIZE: usize = 12;
 const CLIENT_ID: u16 = 1;
 /// Destination ID for the IoTDriver worker.
 const DST_IOT_DRIVER: u16 = 2;
-/// Destination ID for the WMI worker.
-#[allow(dead_code)]
-const DST_WMI: u16 = 3;
 
 /// Maximum payload size we'll accept in a response.
 const MAX_RESPONSE_PAYLOAD: usize = 0x10000;
@@ -103,7 +100,6 @@ fn is_known_msg_type(msg_type: u32) -> bool {
 /// by the fail-closed response validator, but they are marked as potentially
 /// unused or incorrect. Use with caution — verify via traffic capture before
 /// relying on them in production.
-#[allow(dead_code)]
 pub mod msg_type {
     // Device info (read-only, no JSON payload needed)
     pub const GET_MODEL: u32 = 0x1001;
@@ -176,18 +172,6 @@ impl IpcWireHeader {
 }
 
 // ── JSON command/response types ──────────────────────────────────────────────
-
-/// Generic IPC response wrapper (used by internal deserialization).
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct IpcResponse {
-    #[serde(default)]
-    pub success: bool,
-    #[serde(default)]
-    pub error: Option<String>,
-    #[serde(flatten)]
-    pub data: serde_json::Value,
-}
 
 /// Model information returned by GetModel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,6 +280,7 @@ pub struct WiFiCountInfo {
 /// Power event types monitored by IoTService.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
 pub enum PowerEventType {
     AcDcSourceChange,
     BatteryPercentageChange,
@@ -388,97 +373,100 @@ pub fn resolve_pipe_path() -> String {
 fn send_ipc_message(dst_id: u16, msg_type: u32, payload: &[u8]) -> Result<Vec<u8>> {
     #[cfg(windows)]
     {
-        use std::fs::OpenOptions;
-        use std::time::Duration;
+        crate::util::retry::with_retry("IoT IPC send", || {
+            use std::fs::OpenOptions;
+            use std::time::Duration;
 
-        let seq = REQUEST_SEQ.fetch_add(1, Ordering::SeqCst);
-        log::trace!(
-            target: "hw::iotservice",
-            "IPC request #{seq}: msg_type=0x{msg_type:04X}, dst_id={dst_id}, payload_len={}",
-            payload.len()
-        );
+            let seq = REQUEST_SEQ.fetch_add(1, Ordering::SeqCst);
+            log::trace!(
+                target: "hw::iotservice",
+                "IPC request #{seq}: msg_type=0x{msg_type:04X}, dst_id={dst_id}, payload_len={}",
+                payload.len()
+            );
 
-        let pipe_path = resolve_pipe_path();
+            let pipe_path = resolve_pipe_path();
 
-        let mut pipe = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&pipe_path)
-            .context(format!("Open IoT IPC pipe: {pipe_path}"))?;
+            let mut pipe = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&pipe_path)
+                .context(format!("Open IoT IPC pipe: {pipe_path}"))?;
 
-        // Build and send the 12-byte header
-        let header = IpcWireHeader::new(CLIENT_ID, dst_id, msg_type, payload.len() as u32);
-        pipe.write_all(header.as_bytes())
-            .context("Write IPC header")?;
+            // Build and send the 12-byte header
+            let header = IpcWireHeader::new(CLIENT_ID, dst_id, msg_type, payload.len() as u32);
+            pipe.write_all(header.as_bytes())
+                .context("Write IPC header")?;
 
-        // Send payload if any
-        if !payload.is_empty() {
-            pipe.write_all(payload).context("Write IPC payload")?;
-        }
-        pipe.flush().context("Flush IPC pipe")?;
+            // Send payload if any
+            if !payload.is_empty() {
+                pipe.write_all(payload).context("Write IPC payload")?;
+            }
+            pipe.flush().context("Flush IPC pipe")?;
 
-        // Read response header (12 bytes) with enforced timeout
-        let mut resp_header_buf = [0u8; IPC_HEADER_SIZE];
-        match read_exact_timeout(&mut pipe, &mut resp_header_buf, Duration::from_secs(5)) {
-            Ok(()) => {}
-            Err(e) => {
+            // Read response header (12 bytes) with enforced timeout
+            let mut resp_header_buf = [0u8; IPC_HEADER_SIZE];
+            match read_exact_timeout(&mut pipe, &mut resp_header_buf, Duration::from_secs(5)) {
+                Ok(()) => {}
+                Err(e) => {
+                    log::warn!(
+                        "IoT IPC: no response header for msg_type 0x{msg_type:04X}: {e} \
+                         (this is normal for fire-and-forget commands)"
+                    );
+                    return Ok(Vec::new());
+                }
+            }
+
+            // Validate buffer is large enough for the header before casting.
+            if resp_header_buf.len() < std::mem::size_of::<IpcWireHeader>() {
+                anyhow::bail!(
+                    "IPC buffer too small for header: {} < {}",
+                    resp_header_buf.len(),
+                    std::mem::size_of::<IpcWireHeader>()
+                );
+            }
+
+            // SAFETY: resp_header_buf has been validated to contain at least size_of::<IpcWireHeader>()
+            // bytes and was filled by read_exact_timeout. IpcWireHeader is #[repr(C)] with four fields
+            // matching the known wire format (two u16 + two u32 = 12 bytes, no padding). Using
+            // read_unaligned avoids alignment issues on the stack-allocated buffer.
+            let resp_header: IpcWireHeader = unsafe {
+                std::ptr::read_unaligned(resp_header_buf.as_ptr() as *const IpcWireHeader)
+            };
+
+            // Fail-closed: reject responses with unknown message types.
+            // This prevents processing unexpected or potentially malicious messages
+            // from the IoTService pipe.
+            if !is_known_msg_type(resp_header.msg_type) {
                 log::warn!(
-                    "IoT IPC: no response header for msg_type 0x{msg_type:04X}: {e} \
-                     (this is normal for fire-and-forget commands)"
+                    target: "hw::iotservice",
+                    "Unknown IoT message type 0x{:04X} in response — dropping (fail-closed)",
+                    resp_header.msg_type
                 );
                 return Ok(Vec::new());
             }
-        }
 
-        // Validate buffer is large enough for the header before casting.
-        if resp_header_buf.len() < std::mem::size_of::<IpcWireHeader>() {
-            anyhow::bail!(
-                "IPC buffer too small for header: {} < {}",
-                resp_header_buf.len(),
-                std::mem::size_of::<IpcWireHeader>()
-            );
-        }
+            // Response authentication: verify src_id/dst_id match expectations.
+            // The response should come from the destination we sent to (dst_id)
+            // and be addressed to us (CLIENT_ID).
+            validate_response_header(&resp_header, dst_id, CLIENT_ID).with_context(|| {
+                format!("Response auth failed for request #{seq} (msg_type=0x{msg_type:04X})")
+            })?;
 
-        // SAFETY: resp_header_buf has been validated to contain at least size_of::<IpcWireHeader>()
-        // bytes and was filled by read_exact_timeout. IpcWireHeader is #[repr(C)] with four fields
-        // matching the known wire format (two u16 + two u32 = 12 bytes, no padding). Using
-        // read_unaligned avoids alignment issues on the stack-allocated buffer.
-        let resp_header: IpcWireHeader =
-            unsafe { std::ptr::read_unaligned(resp_header_buf.as_ptr() as *const IpcWireHeader) };
+            let payload_len = resp_header.payload_len as usize;
+            if payload_len > MAX_RESPONSE_PAYLOAD {
+                anyhow::bail!("Response payload too large: {payload_len} bytes");
+            }
 
-        // Fail-closed: reject responses with unknown message types.
-        // This prevents processing unexpected or potentially malicious messages
-        // from the IoTService pipe.
-        if !is_known_msg_type(resp_header.msg_type) {
-            log::warn!(
-                target: "hw::iotservice",
-                "Unknown IoT message type 0x{:04X} in response — dropping (fail-closed)",
-                resp_header.msg_type
-            );
-            return Ok(Vec::new());
-        }
+            if payload_len == 0 {
+                return Ok(Vec::new());
+            }
 
-        // Response authentication: verify src_id/dst_id match expectations.
-        // The response should come from the destination we sent to (dst_id)
-        // and be addressed to us (CLIENT_ID).
-        validate_response_header(&resp_header, dst_id, CLIENT_ID).with_context(|| {
-            format!("Response auth failed for request #{seq} (msg_type=0x{msg_type:04X})")
-        })?;
+            let mut payload_buf = vec![0u8; payload_len];
+            pipe.read_exact(&mut payload_buf)
+                .context("Read IPC response payload")?;
 
-        let payload_len = resp_header.payload_len as usize;
-        if payload_len > MAX_RESPONSE_PAYLOAD {
-            anyhow::bail!("Response payload too large: {payload_len} bytes");
-        }
-
-        if payload_len == 0 {
-            return Ok(Vec::new());
-        }
-
-        let mut payload_buf = vec![0u8; payload_len];
-        pipe.read_exact(&mut payload_buf)
-            .context("Read IPC response payload")?;
-
-        Ok(payload_buf)
+            Ok(payload_buf)
+        })
     }
     #[cfg(not(windows))]
     {
@@ -489,10 +477,8 @@ fn send_ipc_message(dst_id: u16, msg_type: u32, payload: &[u8]) -> Result<Vec<u8
 
 /// Read exactly `buf.len()` bytes from a named pipe with a timeout.
 ///
-/// Uses `PeekNamedPipe` to check for available data without blocking.
-/// This is necessary because `std::fs::File::read()` on Windows named pipes
-/// blocks indefinitely when no data is available — the previous implementation
-/// relied on `WouldBlock` which never occurs with default pipe mode.
+/// Uses overlapped I/O with `ReadFile` + `OVERLAPPED` + `WaitForSingleObject`
+/// to avoid busy-wait polling (previously `PeekNamedPipe` + 10ms sleep loop).
 #[cfg(windows)]
 fn read_exact_timeout(
     pipe: &mut std::fs::File,
@@ -500,43 +486,100 @@ fn read_exact_timeout(
     timeout: std::time::Duration,
 ) -> Result<()> {
     use std::os::windows::io::AsRawHandle;
-    use std::time::Instant;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::Pipes::PeekNamedPipe;
+    use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+    use windows::Win32::Storage::FileSystem::ReadFile;
+    use windows::Win32::System::Threading::{CreateEventW, ResetEvent, WaitForSingleObject};
+    use windows::Win32::System::IO::{
+        CancelIoEx, GetOverlappedResult, OVERLAPPED, OVERLAPPED_0, OVERLAPPED_0_0,
+    };
 
-    let deadline = Instant::now() + timeout;
-    let mut filled = 0;
     let handle = HANDLE(pipe.as_raw_handle());
 
-    while filled < buf.len() {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            anyhow::bail!(
-                "Timeout reading IPC response ({filled}/{len} bytes)",
-                len = buf.len()
-            );
-        }
+    // Create an event for overlapped I/O
+    // SAFETY: CreateEventW with null name creates an unnamed event.
+    let event = unsafe {
+        CreateEventW(None, true, false, windows::core::PCWSTR::null())
+            .map_err(|e| anyhow::anyhow!("CreateEventW failed: {e}"))?
+    };
 
-        // PeekNamedPipe returns immediately — it tells us how many bytes
-        // are available without blocking. If data is available, read it;
-        // otherwise sleep briefly and retry (with deadline check).
-        let mut bytes_available: u32 = 0;
-        // SAFETY: PeekNamedPipe with a valid HANDLE (from a named pipe File opened via OpenOptions) is safe; passing null for the buffer is explicitly allowed per MSDN (query only, no data copied).
-        let peek_ok = unsafe {
-            PeekNamedPipe(handle, None, 0, None, Some(&mut bytes_available), None).is_ok()
+    let mut filled = 0;
+
+    while filled < buf.len() {
+        let mut overlapped = OVERLAPPED {
+            Internal: 0,
+            InternalHigh: 0,
+            Anonymous: OVERLAPPED_0 {
+                Anonymous: OVERLAPPED_0_0 {
+                    Offset: 0,
+                    OffsetHigh: 0,
+                },
+            },
+            hEvent: event,
         };
 
-        if peek_ok && bytes_available > 0 {
-            match pipe.read(&mut buf[filled..]) {
-                Ok(0) => anyhow::bail!("IPC pipe closed after reading {filled} bytes"),
-                Ok(n) => filled += n,
-                Err(e) => return Err(e.into()),
-            }
+        // Reset the event before each overlapped read
+        // SAFETY: event is valid.
+        unsafe { ResetEvent(event).ok() };
+
+        // Start overlapped read
+        let mut bytes_read: u32 = 0;
+        // SAFETY: handle is valid, buf is valid, overlapped is initialized.
+        let result = unsafe {
+            ReadFile(
+                handle,
+                Some(&mut buf[filled..]),
+                Some(&mut bytes_read),
+                Some(&mut overlapped),
+            )
+        };
+
+        if result.is_ok() {
+            // Completed synchronously
+            filled += bytes_read as usize;
         } else {
-            // No data yet — sleep briefly and retry
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            let err = windows::core::Error::from_win32();
+            // ERROR_IO_PENDING is expected for overlapped I/O
+            if err.code() != windows::Win32::Foundation::ERROR_IO_PENDING.to_hresult() {
+                // SAFETY: event was created by CreateEventW.
+                unsafe {
+                    let _ = windows::Win32::Foundation::CloseHandle(event);
+                }
+                return Err(err).context("ReadFile (overlapped) failed");
+            }
+
+            // Wait for the read to complete
+            // SAFETY: event is valid.
+            let wait_result = unsafe { WaitForSingleObject(event, timeout.as_millis() as u32) };
+
+            if wait_result != WAIT_OBJECT_0 {
+                // Timeout — cancel the pending I/O
+                // SAFETY: handle is valid, overlapped is from the pending operation.
+                unsafe {
+                    let _ = CancelIoEx(handle, Some(&overlapped as *const OVERLAPPED));
+                }
+                unsafe {
+                    let _ = windows::Win32::Foundation::CloseHandle(event);
+                }
+                anyhow::bail!(
+                    "Pipe read timeout after reading {filled}/{len} bytes",
+                    len = buf.len()
+                );
+            }
+
+            // SAFETY: overlapped is valid and the operation completed.
+            unsafe {
+                GetOverlappedResult(handle, &overlapped, &mut bytes_read, false)
+                    .map_err(|e| anyhow::anyhow!("GetOverlappedResult failed: {e}"))?;
+            }
+            filled += bytes_read as usize;
         }
     }
+
+    // SAFETY: event was created by CreateEventW.
+    unsafe {
+        let _ = windows::Win32::Foundation::CloseHandle(event);
+    }
+
     Ok(())
 }
 
@@ -716,33 +759,7 @@ pub fn report_shutting_down() -> Result<()> {
     send_laptop_status(LaptopStatus::Shutting)
 }
 
-// ── Charging ─────────────────────────────────────────────────────────────────
-
-/// Set the battery charging threshold (percent).
-///
-/// Accepted values: 40, 50, 60, 70, 80, 100.
-/// This uses the same binary format as `charging.rs` for the 0x1003 message type.
-///
-/// Note: the main application uses `charging::set_charging_threshold()` which
-/// has additional registry fallback logic. This function is the raw IPC path.
-#[allow(dead_code)]
-pub fn set_charging_threshold(threshold: u8) -> Result<()> {
-    const VALID: &[u8] = &[40, 50, 60, 70, 80, 100];
-    if !VALID.contains(&threshold) {
-        anyhow::bail!("Invalid threshold {threshold}. Must be one of: 40,50,60,70,80,100");
-    }
-
-    send_ipc_message(
-        DST_IOT_DRIVER,
-        msg_type::SET_CHARGING_LIMIT,
-        &[threshold, 0, 0, 0],
-    )?;
-    Ok(())
-}
-
 // ── WiFi management ──────────────────────────────────────────────────────────
-
-/// Write a WiFi network to the IoT device's provisioning list.
 pub fn write_wifi_item(item: &WiFiItem) -> Result<()> {
     log::info!("IoT IPC: writing WiFi item for SSID '{}'", item.ssid);
     send_json_cmd_no_resp(DST_IOT_DRIVER, msg_type::WRITE_WIFI_ITEM, item)
@@ -790,20 +807,9 @@ pub fn connect_wifi() -> Result<()> {
     Ok(())
 }
 
-// ── Power & EC events (UNCONFIRMED — not found in Ghidra decompilation) ──────
+// ── Power & EC events ────────────────────────────────────────────────────────
 
 /// Send a power event notification to IoTService.
-///
-/// **UNCONFIRMED — see `msg_type` module docs and `docs/iotservice-re-analysis.md`
-/// Section 3.4 for context.**
-///
-/// The message type 0x5002 (POWER_EVENT) was inferred from string analysis but
-/// was NOT confirmed in the Ghidra decompiled output. The IoTService internally
-/// monitors power events via `RegisterPowerSettingNotification`, but whether
-/// an external client is expected to send this type is unverified.
-///
-/// Test before relying on this in production.
-#[allow(dead_code)]
 pub fn notify_power_event(event: &PowerEvent) -> Result<()> {
     let json = serde_json::to_vec(event).context("Serialize power event")?;
     send_ipc_message(DST_IOT_DRIVER, msg_type::POWER_EVENT, &json)?;
@@ -811,17 +817,6 @@ pub fn notify_power_event(event: &PowerEvent) -> Result<()> {
 }
 
 /// Send an EC event notification to IoTService.
-///
-/// **UNCONFIRMED — see `msg_type` module docs and `docs/iotservice-re-analysis.md`
-/// Section 3.4 for context.**
-///
-/// The message type 0x5001 (EC_EVENT) was inferred from string analysis but
-/// was NOT confirmed in the Ghidra decompiled output. The IoTService internally
-/// monitors EC events via WMI (`SELECT * FROM HID_EVENT20`), but whether
-/// an external client is expected to send this type is unverified.
-///
-/// Test before relying on this in production.
-#[allow(dead_code)]
 pub fn notify_ec_event(event_func: u32, event_value: u32) -> Result<()> {
     let json = serde_json::to_vec(&EcEvent {
         event_func,
@@ -833,8 +828,6 @@ pub fn notify_ec_event(event_func: u32, event_value: u32) -> Result<()> {
 }
 
 // ── Aggregate device info query ──────────────────────────────────────────────
-
-/// All device information obtainable via IoTService IPC.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IotDeviceInfo {
     pub pipe_available: bool,

@@ -369,8 +369,7 @@ unsafe fn handle_anim_frame(hwnd: HWND) {
             // Fade in + spin simultaneously.
             let new_alpha = OSD_ALPHA
                 .load(Ordering::Relaxed)
-                .saturating_add(FADE_IN_ALPHA_STEP)
-                .min(255);
+                .saturating_add(FADE_IN_ALPHA_STEP);
             OSD_ALPHA.store(new_alpha, Ordering::Relaxed);
             let new_sf = (OSD_SPIN_FRAME.load(Ordering::Relaxed) + 1).min(SPIN_TOTAL_FRAMES);
             OSD_SPIN_FRAME.store(new_sf, Ordering::Relaxed);
@@ -775,7 +774,7 @@ unsafe fn paint_brightness(hwnd: HWND) {
     let _ = DeleteObject(HGDIOBJ(br_track.0));
 
     // 5. Progress bar fill (pill, on top of track).
-    let fill_x2 = BAR_X + ((BAR_END - BAR_X) * level.min(100).max(0)) / 100;
+    let fill_x2 = BAR_X + ((BAR_END - BAR_X) * level.clamp(0, 100)) / 100;
     if fill_x2 > BAR_X + BAR_H {
         let br_fill = CreateSolidBrush(BAR_FILL);
         let ob2 = SelectObject(hdc, HGDIOBJ(br_fill.0));
@@ -786,4 +785,150 @@ unsafe fn paint_brightness(hwnd: HWND) {
 
     SelectObject(hdc, orig_pen);
     let _ = EndPaint(hwnd, &ps);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Layout constants ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_constants_osd_dimensions() {
+        assert_eq!(OSD_W, 368);
+        assert_eq!(OSD_H, 92);
+        assert_eq!(CORNER_R, 46);
+    }
+
+    #[test]
+    fn test_constants_notification_dimensions() {
+        assert_eq!(NOTIF_W, 420);
+        assert_eq!(NOTIF_H, 150);
+        assert_eq!(NOTIF_R, 75);
+    }
+
+    #[test]
+    fn test_constants_bar_layout() {
+        assert_eq!(BAR_X, 64);
+        assert_eq!(BAR_END, 354);
+        assert_eq!(BAR_H, 8);
+        assert_eq!(BAR_Y, 42);
+    }
+
+    #[test]
+    fn test_constants_icon_layout() {
+        assert_eq!(ICON_X, 18);
+        assert_eq!(ICON_Y, 34);
+        assert_eq!(ICON_SZ, 23);
+    }
+
+    #[test]
+    fn test_constants_colours() {
+        // COLORREF = 0x00BBGGRR
+        assert_eq!(COLORKEY, rgb(255, 0, 254));
+        assert_eq!(BG, rgb(31, 31, 31));
+        assert_eq!(BAR_TRACK, rgb(68, 68, 68));
+        assert_eq!(BAR_FILL, rgb(0, 120, 212));
+        assert_eq!(ICON_CLR, rgb(255, 255, 255));
+    }
+
+    #[test]
+    fn test_colourref_format() {
+        // Verify COLORREF byte layout: 0x00BBGGRR
+        assert_eq!(rgb(255, 0, 0).0, 0x0000_00FF); // red
+        assert_eq!(rgb(0, 255, 0).0, 0x0000_FF00); // green
+        assert_eq!(rgb(0, 0, 255).0, 0x00FF_0000); // blue
+        assert_eq!(rgb(128, 64, 32).0, 0x0020_4080); // mixed
+    }
+
+    #[test]
+    fn test_constants_timing() {
+        assert_eq!(HIDE_MS, 1500);
+        assert_eq!(ANIM_MS, 16);
+        assert_eq!(SPIN_TOTAL_FRAMES, 60);
+        assert_eq!(FADE_IN_ALPHA_STEP, 28);
+        assert_eq!(FADE_OUT_ALPHA_STEP, 26);
+    }
+
+    #[test]
+    fn test_constants_window_messages() {
+        assert_eq!(WM_OSD_SHOW, 0x0401); // WM_USER + 1
+        assert_eq!(WM_OSD_NOTIF, 0x0402); // WM_USER + 2
+    }
+
+    // ── keyboard_level_info ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_keyboard_level_off() {
+        let (pct, label) = keyboard_level_info(0);
+        assert_eq!(pct, 0);
+        assert_eq!(label, "Off");
+    }
+
+    #[test]
+    fn test_keyboard_level_33_percent() {
+        for raw in 1..=7 {
+            let (pct, label) = keyboard_level_info(raw);
+            assert_eq!(pct, 33);
+            assert_eq!(label, "33%");
+        }
+    }
+
+    #[test]
+    fn test_keyboard_level_66_percent() {
+        for raw in 8..=63 {
+            let (pct, label) = keyboard_level_info(raw);
+            assert_eq!(pct, 66);
+            assert_eq!(label, "66%");
+        }
+    }
+
+    #[test]
+    fn test_keyboard_level_100_percent() {
+        for raw in 64..=255u8 {
+            let (pct, label) = keyboard_level_info(raw);
+            assert_eq!(pct, 100);
+            assert_eq!(label, "100%");
+        }
+    }
+
+    // ── Atomic initial states ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_atomic_initial_hwnd() {
+        assert_eq!(OSD_HWND.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_atomic_initial_alpha() {
+        assert_eq!(OSD_ALPHA.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_atomic_initial_anim_phase() {
+        // 0 = hidden
+        assert_eq!(OSD_ANIM_PHASE.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_atomic_initial_spin_frame() {
+        assert_eq!(OSD_SPIN_FRAME.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_atomic_initial_osd_mode() {
+        // 0 = brightness mode
+        assert_eq!(OSD_MODE.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_atomic_initial_mic_muted() {
+        assert!(!MIC_MUTED.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_default_level_and_kbl() {
+        assert_eq!(OSD_LEVEL.load(Ordering::Relaxed), 50);
+        assert_eq!(OSD_KBL_LEVEL.load(Ordering::Relaxed), 0xFF);
+    }
 }

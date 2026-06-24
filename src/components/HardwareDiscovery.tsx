@@ -128,10 +128,14 @@ export default function HardwareDiscovery({ profile, loading, onRescan, onInstal
     setScanError(null);
     try {
       await onRescan();
-      addToast(t('discovery.scanSuccess'), 'success');
+      addToast({ message: t('discovery.scanSuccess'), type: 'success' });
     } catch (e) {
       setScanError(String(e));
-      addToast(`${t('discovery.scanFailed')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('discovery.scanFailed')}: ${String(e)}`,
+        type: 'error',
+        onRetry: handleRescan,
+      });
     } finally {
       setScanning(false);
     }

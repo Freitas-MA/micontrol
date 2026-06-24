@@ -24,22 +24,17 @@ export default tseslint.config(
     },
     rules: {
       ...react.configs.recommended.rules,
-      // Downgrade react-hooks rules to "warn" — the existing codebase
-      // has patterns (conditional hooks, refs in deps, set-state-in-effect)
-      // that would take significant refactoring to eliminate. Tighten
-      // to "error" as those cleanups land.
-      'react-hooks/rules-of-hooks': 'warn',
-      'react-hooks/exhaustive-deps': 'warn',
+      // react-hooks rules are set to "error" — all violations have been
+      // fixed across the codebase. Keep them at error to prevent regressions.
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
       'react/no-unescaped-entities': 'warn',
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',
-      '@typescript-eslint/no-unused-vars': [
-        'warn',
-        { argsIgnorePattern: '^_' },
-      ],
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       // Catch floating promises that might cause unhandled rejections.
-      '@typescript-eslint/no-floating-promises': 'warn',
+      '@typescript-eslint/no-floating-promises': 'error',
     },
   },
   {

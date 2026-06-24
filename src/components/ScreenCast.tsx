@@ -26,10 +26,14 @@ export default function ScreenCast() {
       const list = await invoke<CastDevice[]>('get_cast_devices');
       setDevices(list);
       if (list.length === 0) {
-        addToast(t('cast.noDevices'), 'info');
+        addToast({ message: t('cast.noDevices'), type: 'info' });
       }
     } catch (e) {
-      addToast(`${t('cast.scanError')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('cast.scanError')}: ${String(e)}`,
+        type: 'error',
+        onRetry: handleScan,
+      });
     } finally {
       setLoading(false);
     }
@@ -41,12 +45,16 @@ export default function ScreenCast() {
       const result = await invoke<CastResult>('start_casting', { deviceId: '' });
       if (result.success) {
         setCasting(true);
-        addToast(t('cast.panelOpened'), 'success');
+        addToast({ message: t('cast.panelOpened'), type: 'success' });
       } else {
-        addToast(result.message, 'error');
+        addToast({ message: result.message, type: 'error' });
       }
     } catch (e) {
-      addToast(`${t('cast.error')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('cast.error')}: ${String(e)}`,
+        type: 'error',
+        onRetry: handleStartCast,
+      });
     } finally {
       setLoading(false);
     }
@@ -58,10 +66,14 @@ export default function ScreenCast() {
       const result = await invoke<CastResult>('stop_casting');
       if (result.success) {
         setCasting(false);
-        addToast(t('cast.stopped'), 'info');
+        addToast({ message: t('cast.stopped'), type: 'info' });
       }
     } catch (e) {
-      addToast(`${t('cast.error')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('cast.error')}: ${String(e)}`,
+        type: 'error',
+        onRetry: handleStopCast,
+      });
     } finally {
       setLoading(false);
     }

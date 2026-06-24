@@ -198,10 +198,11 @@ function PerformanceTab({
     } catch (e) {
       setDebugInfo(null);
       console.error('get_perf_debug failed', e);
-      addToast(t('performance.error'), 'error');
+      addToast({ message: t('performance.error'), type: 'error' });
     } finally {
       setLoadingDebug(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadLogs = useCallback(async () => {
@@ -966,7 +967,7 @@ function KeyBindingRow({
       pollRef.current = id;
     } catch (e) {
       console.error('[keyboard] start_key_detect failed:', e);
-      addToast(t('keyboard.loadError'), 'error');
+      addToast({ message: t('keyboard.loadError'), type: 'error' });
       setDetecting(false);
       setDetectedVk('');
     }
@@ -1255,7 +1256,7 @@ function KeyboardTab() {
           .then(setConfig)
           .catch((e) => {
             console.error('get_hotkey_config', e);
-            addToast(t('keyboard.loadError'), 'error');
+            addToast({ message: t('keyboard.loadError'), type: 'error' });
           });
         invoke<boolean>('is_hook_active')
           .then(setHookActive)
@@ -1263,8 +1264,9 @@ function KeyboardTab() {
       })
       .catch((e) => {
         console.error('Failed to import Tauri core:', e);
-        addToast(t('keyboard.loadError'), 'error');
+        addToast({ message: t('keyboard.loadError'), type: 'error' });
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save() {
@@ -1274,12 +1276,16 @@ function KeyboardTab() {
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke('set_hotkey_config', { config });
       setSaved(true);
-      addToast(t('keyboard.saved'), 'success');
+      addToast({ message: t('keyboard.saved'), type: 'success' });
       const savedTimeout = window.setTimeout(() => setSaved(false), 2000);
       timeoutRefs.current.push(savedTimeout);
     } catch (e) {
       console.error('set_hotkey_config', e);
-      addToast(`${t('keyboard.saveError')}: ${String(e)}`, 'error');
+      addToast({
+        message: `${t('keyboard.saveError')}: ${String(e)}`,
+        type: 'error',
+        onRetry: save,
+      });
     } finally {
       setSaving(false);
     }

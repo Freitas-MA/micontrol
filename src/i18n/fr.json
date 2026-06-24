@@ -397,7 +397,8 @@
     "watts": "W",
     "unknown": "Inconnu",
     "show": "Afficher",
-    "hide": "Masquer"
+    "hide": "Masquer",
+    "retry": "Réessayer"
   },
   "wifi": {
     "title": "Gestionnaire WiFi",
@@ -517,6 +518,7 @@
     "reset": "Restaurer les défauts",
     "storageNote": "La clé API est stockée en toute sécurité dans le Gestionnaire d'informations d'identification Windows. Elle est envoyée au fournisseur d'IA lors des demandes d'analyse.",
     "apiKeyMissing": "Clé API non configurée. Allez dans Paramètres pour ajouter votre clé.",
+    "customEndpointWarning": "Les données sont envoyées à un point de terminaison personnalisé, pas à OpenAI. Vérifiez que vous faites confiance à ce fournisseur.",
     "dataDeletion": "Suppression des Données",
     "dataDeletionDesc": "Supprimez toutes vos données, y compris les journaux, les identifiants et les paramètres stockés sur cet appareil.",
     "deleteAllData": "Supprimer Toutes Mes Données",

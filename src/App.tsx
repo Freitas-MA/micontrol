@@ -67,7 +67,7 @@ function useSentry() {
         // Sentry init is best-effort
       }
     };
-    init();
+    void init();
     return () => {
       cancelled = true;
     };
@@ -75,26 +75,24 @@ function useSentry() {
 }
 
 export default function App() {
+  // Hooks MUST be called before any early return (rules-of-hooks).
+  useSentry();
+  const hardware = useHardware();
+  const [activeTab, setActiveTab] = useState(
+    () => localStorage.getItem('micontrol_active_tab') ?? 'overview',
+  );
+  const { themeMode, toggleTheme } = useTheme();
+  useLanguage();
+
   // The brightness OSD window needs a transparent body — no providers needed.
   if (isBrightnessOsd) {
     return <BrightnessOsd />;
   }
 
-  useSentry();
-
-  const hardware = useHardware();
-  const [activeTab, setActiveTab] = useState(
-    () => localStorage.getItem('micontrol_active_tab') ?? 'overview',
-  );
-
   function handleTabChange(tab: string) {
     setActiveTab(tab);
     localStorage.setItem('micontrol_active_tab', tab);
   }
-
-  const { themeMode, toggleTheme } = useTheme();
-  // Subscribe to language changes so the entire tree re-renders on locale switch
-  useLanguage();
 
   // tray-window class is already added synchronously above; useEffect is redundant.
 

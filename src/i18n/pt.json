@@ -248,7 +248,8 @@
     "watts": "W",
     "unknown": "Desconhecido",
     "show": "Mostrar",
-    "hide": "Ocultar"
+    "hide": "Ocultar",
+    "retry": "Tentar novamente"
   },
   "updates": {
     "title": "Drivers & BIOS",
@@ -334,6 +335,7 @@
     "reset": "Restaurar predefinições",
     "storageNote": "A chave API é armazenada com segurança no Gerenciador de Credenciais do Windows. Ela é enviada ao provedor de IA ao fazer solicitações de análise.",
     "apiKeyMissing": "Chave API não configurada. Vá a Definições para adicionar a sua chave.",
+    "customEndpointWarning": "Os dados são enviados para um endpoint personalizado, não para a OpenAI. Verifique se confia neste fornecedor.",
     "dataDeletion": "Exclusão de Dados",
     "dataDeletionDesc": "Exclua todos os seus dados incluindo logs, credenciais e configurações armazenados neste dispositivo.",
     "deleteAllData": "Excluir Todos os Meus Dados",

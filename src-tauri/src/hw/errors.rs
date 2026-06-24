@@ -104,7 +104,12 @@ impl HardwareError {
 
 impl From<anyhow::Error> for HardwareError {
     fn from(e: anyhow::Error) -> Self {
-        Self::Other(e.to_string())
+        // Check if the inner error is already a HardwareError (e.g. from
+        // wmi_cache operations) to avoid double-wrapping.
+        match e.downcast::<HardwareError>() {
+            Ok(hw) => hw,
+            Err(original) => Self::Other(original.to_string()),
+        }
     }
 }
 
@@ -160,6 +165,24 @@ impl ErrorResponse {
 impl From<HardwareError> for ErrorResponse {
     fn from(e: HardwareError) -> Self {
         Self::from_error(&e)
+    }
+}
+
+impl From<String> for ErrorResponse {
+    fn from(s: String) -> Self {
+        ErrorResponse {
+            code: "UNKNOWN_ERROR".to_string(),
+            message: s,
+        }
+    }
+}
+
+impl From<anyhow::Error> for ErrorResponse {
+    fn from(e: anyhow::Error) -> Self {
+        ErrorResponse {
+            code: "INTERNAL_ERROR".to_string(),
+            message: e.to_string(),
+        }
     }
 }
 
