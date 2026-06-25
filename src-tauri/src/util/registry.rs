@@ -104,7 +104,41 @@ impl RegKeyGuard {
             )
         };
         if result.is_err() {
-            return Ok(None);
+            // S23-003: Check for ERROR_MORE_DATA (code 234) — the value is larger
+            // than our initial 512-byte buffer. Retry with the required size.
+            const ERROR_MORE_DATA: u32 = 234;
+
+            if result.0 != ERROR_MORE_DATA {
+                return Ok(None);
+            }
+
+            // buf_len now contains the required size in bytes.
+            // Cap at 64KB to prevent unbounded allocation from malicious values.
+            const MAX_REGISTRY_VALUE_SIZE: u32 = 64 * 1024;
+            if buf_len > MAX_REGISTRY_VALUE_SIZE {
+                log::warn!(
+                    "Registry value '{}' exceeds 64KB limit ({} bytes), skipping",
+                    name,
+                    buf_len
+                );
+                return Ok(None);
+            }
+
+            // Reallocate with the required size and retry.
+            buf = vec![0u16; (buf_len as usize).div_ceil(2)];
+            let result2 = unsafe {
+                RegQueryValueExW(
+                    self.as_raw(),
+                    PCWSTR(name_w.as_ptr()),
+                    None,
+                    Some(&mut value_type),
+                    Some(buf.as_mut_ptr() as *mut u8),
+                    Some(&mut buf_len),
+                )
+            };
+            if result2.is_err() {
+                return Ok(None);
+            }
         }
 
         let len = (buf_len / 2) as usize;

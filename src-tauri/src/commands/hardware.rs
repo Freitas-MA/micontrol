@@ -148,10 +148,11 @@ pub async fn write_iot_hex(address: String, hex_data: String) -> Result<(), Erro
                 )));
             }
             if !is_eram_range(addr, bytes.len()) {
+                let eram_start = crate::hw::ecram::get_eram_base();
                 return Err(HardwareError::Other(format!(
                     "Raw write denied: address range must stay inside ERAM (0x{:#X}..0x{:#X})",
-                    crate::hw::ecram::ERAM_BASE,
-                    crate::hw::ecram::ERAM_BASE + crate::hw::ecram::ERAM_SIZE as u64
+                    eram_start,
+                    eram_start + crate::hw::ecram::ERAM_SIZE as u64
                 )));
             }
         }
@@ -414,7 +415,8 @@ fn is_eram_range(addr: u64, len: usize) -> bool {
     if len == 0 {
         return false;
     }
-    let start = crate::hw::ecram::ERAM_BASE;
+    // S23-002: Use DSDT-discovered base instead of compile-time constant.
+    let start = crate::hw::ecram::get_eram_base();
     let end = start + crate::hw::ecram::ERAM_SIZE as u64;
     let write_end = addr.saturating_add(len as u64);
     addr >= start && write_end <= end
@@ -424,7 +426,7 @@ fn is_known_safe_single_byte_write(addr: u64, data: &[u8]) -> bool {
     if data.len() != 1 || !is_eram_range(addr, 1) {
         return false;
     }
-    let offset = (addr - crate::hw::ecram::ERAM_BASE) as usize;
+    let offset = (addr - crate::hw::ecram::get_eram_base()) as usize;
     matches!(
         offset,
         0x1B | 0x40 | 0x42 | 0x4A | 0x4B | 0x68 | 0x96 | 0xAE | 0xB2

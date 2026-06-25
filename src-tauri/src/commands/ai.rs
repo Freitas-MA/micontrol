@@ -157,6 +157,12 @@ pub async fn analyze_system(
 /// Quick connectivity + auth test — sends a minimal prompt.
 #[tauri::command]
 pub async fn test_connection(base_url: String, model: String) -> Result<String, String> {
+    // S23-005: Check telemetry consent before sending API key to external server.
+    let consent = get_telemetry_consent().map_err(|e| e.to_string())?;
+    if consent != "granted" {
+        return Err("consent_denied".to_string());
+    }
+
     let entry =
         Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| format!("Keyring error: {e}"))?;
     let api_key = entry

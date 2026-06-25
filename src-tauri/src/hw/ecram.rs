@@ -37,6 +37,8 @@ use std::sync::OnceLock;
 pub const ERAM_BASE_FALLBACK: u64 = 0xFE0B0300;
 /// Backward-compatibility alias for `ERAM_BASE_FALLBACK`. External callers should
 /// use `get_eram_base()` instead to benefit from DSDT auto-discovery.
+/// Still used in test code for constructing test addresses.
+#[allow(dead_code)]
 pub const ERAM_BASE: u64 = ERAM_BASE_FALLBACK;
 /// Size of the ACPI ERAM region.
 pub const ERAM_SIZE: usize = 0x100;

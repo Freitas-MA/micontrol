@@ -681,6 +681,17 @@ fn read_exact_timeout(
 
         if result.is_ok() {
             // Completed synchronously
+            if bytes_read == 0 {
+                // S23-001: Pipe closed by remote end (EOF). Without this check,
+                // the loop spins forever consuming 100% CPU.
+                unsafe {
+                    let _ = windows::Win32::Foundation::CloseHandle(event);
+                }
+                anyhow::bail!(
+                    "Pipe closed by remote end (EOF) after reading {filled}/{} bytes",
+                    buf.len()
+                );
+            }
             filled += bytes_read as usize;
         } else {
             let err = windows::core::Error::from_win32();
@@ -716,6 +727,16 @@ fn read_exact_timeout(
             unsafe {
                 GetOverlappedResult(handle, &overlapped, &mut bytes_read, false)
                     .map_err(|e| anyhow::anyhow!("GetOverlappedResult failed: {e}"))?;
+            }
+            // S23-001: Check for EOF on the overlapped path as well.
+            if bytes_read == 0 {
+                unsafe {
+                    let _ = windows::Win32::Foundation::CloseHandle(event);
+                }
+                anyhow::bail!(
+                    "Pipe closed by remote end (EOF) after reading {filled}/{} bytes",
+                    buf.len()
+                );
             }
             filled += bytes_read as usize;
         }
