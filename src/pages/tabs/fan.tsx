@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 import FanControl from '../../components/FanControl';
@@ -7,7 +8,7 @@ interface Props {
   hw: Hardware;
 }
 
-export default function FanTab({ hw }: Props) {
+function FanTab({ hw }: Props) {
   return (
     <>
       <PageHeader title={t('fan.title')} />
@@ -15,3 +16,5 @@ export default function FanTab({ hw }: Props) {
     </>
   );
 }
+
+export default memo(FanTab);

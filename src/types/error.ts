@@ -56,26 +56,51 @@ export function parseErrorResponse(error: unknown): ErrorResponse {
 }
 
 /**
- * Get a user-friendly error message based on the error code.
+ * Translation function type — matches the `t` function from `useI18n`.
+ * Accepts a dot-path key and returns the localized string.
  */
-export function getUserFriendlyMessage(error: ErrorResponse): string {
+export type TranslateFn = (key: string) => string;
+
+/**
+ * Get a user-friendly error message based on the error code.
+ *
+ * @param error  The parsed error response from the backend.
+ * @param t      Translation function from `useI18n`. When omitted, falls back
+ *               to the raw English strings (useful for non-React contexts).
+ */
+export function getUserFriendlyMessage(error: ErrorResponse, t?: TranslateFn): string {
+  const tr = t ?? ((key: string) => FALLBACK_MESSAGES[key] ?? key);
   switch (error.code) {
     case ERROR_CODES.WMI_QUERY:
     case ERROR_CODES.WMI_CONNECTION:
-      return 'Hardware information is temporarily unavailable. The system may be busy.';
+      return tr('errors.wmiUnavailable');
     case ERROR_CODES.DEVICE_NOT_FOUND:
-      return 'The requested hardware device was not found.';
+      return tr('errors.deviceNotFound');
     case ERROR_CODES.PERMISSION_DENIED:
-      return 'Permission denied. Administrator privileges may be required.';
+      return tr('errors.permissionDeniedAdmin');
     case ERROR_CODES.TIMEOUT:
-      return 'The operation timed out. Please try again.';
+      return tr('errors.timeout');
     case ERROR_CODES.AI_CONSENT_DENIED:
-      return 'AI analysis requires telemetry consent. Please grant consent in Settings.';
+      return tr('errors.aiConsentDenied');
     case ERROR_CODES.AI_REQUEST_FAILED:
-      return 'AI analysis failed. Please check your connection and try again.';
+      return tr('errors.aiRequestFailed');
     case ERROR_CODES.AI_RESPONSE_INVALID:
-      return 'AI returned an invalid response. Please try again.';
+      return tr('errors.aiResponseInvalid');
     default:
-      return error.message || 'An unexpected error occurred.';
+      return error.message || tr('errors.unexpected');
   }
 }
+
+/** English fallback strings used when no translation function is provided. */
+const FALLBACK_MESSAGES: Record<string, string> = {
+  'errors.wmiUnavailable':
+    'Hardware information is temporarily unavailable. The system may be busy.',
+  'errors.deviceNotFound': 'The requested hardware device was not found.',
+  'errors.permissionDeniedAdmin': 'Permission denied. Administrator privileges may be required.',
+  'errors.timeout': 'The operation timed out. Please try again.',
+  'errors.aiConsentDenied':
+    'AI analysis requires telemetry consent. Please grant consent in Settings.',
+  'errors.aiRequestFailed': 'AI analysis failed. Please check your connection and try again.',
+  'errors.aiResponseInvalid': 'AI returned an invalid response. Please try again.',
+  'errors.unexpected': 'An unexpected error occurred.',
+};

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { t } from '../../hooks/useI18n';
 import { PageHeader } from './PageHeader';
 import AudioControl from '../../components/AudioControl';
@@ -7,7 +8,7 @@ interface Props {
   hw: Hardware;
 }
 
-export default function AudioTab({ hw }: Props) {
+function AudioTab({ hw }: Props) {
   return (
     <>
       <PageHeader title={t('audio.pageTitle')} />
@@ -20,3 +21,5 @@ export default function AudioTab({ hw }: Props) {
     </>
   );
 }
+
+export default memo(AudioTab);

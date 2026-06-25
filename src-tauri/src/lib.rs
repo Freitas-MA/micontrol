@@ -339,6 +339,9 @@ pub fn run() {
                 .ok();
             crate::hw::discovery::init(data_dir);
 
+            // S24-016: Load persisted AI usage stats on startup.
+            crate::util::ai_usage::load_on_startup();
+
             // S24-002: Check if HMAC key needs rotation.
             if crate::util::auth::key_needs_rotation() {
                 log::warn!("HMAC key rotation needed — run with --rotate-key to rotate");

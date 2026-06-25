@@ -403,7 +403,15 @@
     "permissionDenied": "Permission refusée — essayez d'exécuter en tant qu'administrateur",
     "unknownError": "Une erreur inconnue s'est produite",
     "connectionFailed": "Échec de la connexion au service matériel",
-    "commandFailed": "Commande échouée : {error}"
+    "commandFailed": "Commande échouée : {error}",
+    "wmiUnavailable": "Les informations matérielles sont temporairement indisponibles. Le système est peut-être occupé.",
+    "deviceNotFound": "Le périphérique matériel demandé est introuvable.",
+    "permissionDeniedAdmin": "Permission refusée. Des privilèges d'administrateur peuvent être requis.",
+    "timeout": "L'opération a expiré. Veuillez réessayer.",
+    "aiConsentDenied": "L'analyse IA nécessite le consentement à la télémétrie. Accordez le consentement dans les Paramètres.",
+    "aiRequestFailed": "L'analyse IA a échoué. Vérifiez votre connexion et réessayez.",
+    "aiResponseInvalid": "L'IA a renvoyé une réponse invalide. Veuillez réessayer.",
+    "unexpected": "Une erreur inattendue s'est produite."
   },
   "common": {
     "save": "Enregistrer",
@@ -754,7 +762,10 @@
       "title": "Quelque chose s'est mal passé",
       "message": "Une erreur inattendue s'est produite. Essayez de recharger l'application.",
       "reload": "Recharger",
-      "report": "Signaler un Problème"
+      "report": "Signaler un Problème",
+      "compactTitle": "Cet onglet a rencontré une erreur",
+      "compactMessage": "Une erreur s'est produite lors du chargement de cet onglet.",
+      "reloadTab": "Recharger l'onglet"
     }
   }
 }

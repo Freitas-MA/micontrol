@@ -6,6 +6,7 @@ import TrayPopup from './TrayPopup';
 import { useSettings } from '../hooks/useSettings';
 import { useAnalysisLogger } from '../hooks/useAnalysisLogger';
 import { ConsentDialog } from '../components/ConsentDialog';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { MiControlIcon } from '../components/MiControlIcon';
 import OnboardingWizard from '../components/OnboardingWizard';
 import PrivacyPolicy from './PrivacyPolicy';
@@ -353,15 +354,17 @@ export default function MainWindow({
 
       <main className="content-area">
         <div className="tab-content" key={activeTab}>
-          <Suspense
-            fallback={
-              <div className="loading-spinner" role="status" aria-live="polite">
-                {t('common.loading')}
-              </div>
-            }
-          >
-            {renderTab()}
-          </Suspense>
+          <ErrorBoundary compact>
+            <Suspense
+              fallback={
+                <div className="loading-spinner" role="status" aria-live="polite">
+                  {t('common.loading')}
+                </div>
+              }
+            >
+              {renderTab()}
+            </Suspense>
+          </ErrorBoundary>
         </div>
 
         {/* Watermark */}

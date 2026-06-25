@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 import BatteryInfoCard from '../../components/BatteryInfo';
@@ -8,7 +9,7 @@ interface Props {
   hw: Hardware;
 }
 
-export default function BatteryTab({ hw }: Props) {
+function BatteryTab({ hw }: Props) {
   return (
     <>
       <PageHeader title={t('battery.title')} />
@@ -20,3 +21,4 @@ export default function BatteryTab({ hw }: Props) {
     </>
   );
 }
+export default memo(BatteryTab);

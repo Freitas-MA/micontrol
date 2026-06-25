@@ -1,6 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getUserFriendlyMessage, parseErrorResponse } from '../types/error';
+import type { TranslateFn } from '../types/error';
+import { t } from './useI18n';
+
+// Adapter: the i18n `t` function uses a typed StringKey union, but
+// getUserFriendlyMessage expects a plain (key: string) => string.
+// This wrapper bridges the two without breaking type safety of `t`.
+const translate: TranslateFn = (key) => t(key as never);
 
 // ── Type definitions matching Rust structs ───────────────────────────────────
 
@@ -271,7 +278,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.error('Fast poll failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
     }
   }, []);
 
@@ -291,7 +298,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.error('Slow poll failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
     }
   }, []);
 
@@ -329,7 +336,7 @@ export function useHardware() {
           setError(null);
         } catch (e) {
           console.error('Initial hardware load failed:', e);
-          setError(getUserFriendlyMessage(parseErrorResponse(e)));
+          setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
         } finally {
           setLoading(false);
         }
@@ -368,7 +375,7 @@ export function useHardware() {
     } catch (e) {
       setPerformanceModeState(snap);
       console.error('[perf] set_performance_mode failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -382,7 +389,7 @@ export function useHardware() {
     } catch (e) {
       setChargingThresholdState(snap);
       console.error('[charge] set_charging_threshold failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -396,7 +403,7 @@ export function useHardware() {
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_brightness failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -410,7 +417,7 @@ export function useHardware() {
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_hdr failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -424,7 +431,7 @@ export function useHardware() {
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_ai_brightness failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -440,7 +447,7 @@ export function useHardware() {
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_ai_brightness_config failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -456,7 +463,7 @@ export function useHardware() {
     } catch (e) {
       setFan(snap);
       console.error('[fan] set_fan_mode failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -485,7 +492,7 @@ export function useHardware() {
         setTouchpad(snap);
         touchpadDirtyUntil.current = 0;
         console.error('[touchpad] set_touchpad_sensitivity failed:', e);
-        setError(getUserFriendlyMessage(parseErrorResponse(e)));
+        setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
         throw e;
       }
     },
@@ -504,7 +511,7 @@ export function useHardware() {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_haptics failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -521,7 +528,7 @@ export function useHardware() {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_haptics_intensity failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -538,7 +545,7 @@ export function useHardware() {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_gesture_screenshot failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -555,7 +562,7 @@ export function useHardware() {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_repress failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -572,7 +579,7 @@ export function useHardware() {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_edge_slide failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -586,7 +593,7 @@ export function useHardware() {
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_refresh_rate failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -600,7 +607,7 @@ export function useHardware() {
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_adaptive_refresh_rate failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -612,7 +619,7 @@ export function useHardware() {
       return result;
     } catch (e) {
       console.error('[sys] get_process_list failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       return [];
     }
   }, []);
@@ -631,7 +638,7 @@ export function useHardware() {
     } catch (e) {
       // non-fatal — update panel shows fallback
       console.warn('get_update_status error:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
     } finally {
       setLoadingUpdate(false);
     }
@@ -649,7 +656,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.warn('get_hardware_profile error:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
     }
   }, []);
 
@@ -662,7 +669,7 @@ export function useHardware() {
       return profile;
     } catch (e) {
       console.warn('run_hardware_discovery error:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     } finally {
       setLoadingDiscovery(false);
@@ -676,7 +683,7 @@ export function useHardware() {
       return result;
     } catch (e) {
       console.error('[setup] install_driver failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -688,7 +695,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.error('[perf] write_ai_perf_log failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
     }
   }, []);
 
@@ -699,7 +706,7 @@ export function useHardware() {
       return result;
     } catch (e) {
       console.error('[perf] read_ai_perf_logs failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       return [];
     }
   }, []);
@@ -710,7 +717,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.warn('[perf] open_ai_logs_dir failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
     }
   }, []);
 
@@ -721,7 +728,7 @@ export function useHardware() {
       return result;
     } catch (e) {
       console.error('[iot] get_ecram_map failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -733,7 +740,7 @@ export function useHardware() {
       return result;
     } catch (e) {
       console.error('[iot] get_iot_region_hex failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -744,7 +751,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.error('[iot] write_iot_hex failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -756,7 +763,7 @@ export function useHardware() {
       return result;
     } catch (e) {
       console.error('[iot] read_ecram_raw failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -768,7 +775,7 @@ export function useHardware() {
       return result;
     } catch (e) {
       console.error('[iot] is_elevated failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       return false;
     }
   }, []);
@@ -779,7 +786,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.error('[app] relaunch_as_admin failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -794,7 +801,7 @@ export function useHardware() {
       setError(null);
     } catch (e) {
       console.error('getAudioState failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
     }
   }, []);
 
@@ -808,7 +815,7 @@ export function useHardware() {
     } catch (e) {
       setAudioState(snap);
       console.error('[audio] set_audio_volume failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -822,7 +829,7 @@ export function useHardware() {
     } catch (e) {
       setAudioState(snap);
       console.error('[audio] set_audio_mute failed:', e);
-      setError(getUserFriendlyMessage(parseErrorResponse(e)));
+      setError(getUserFriendlyMessage(parseErrorResponse(e), translate));
       throw e;
     }
   }, []);
@@ -831,7 +838,9 @@ export function useHardware() {
     void refreshHardwareProfile();
   }, [refreshHardwareProfile]);
 
-  // ── Split useMemo into logical groups (S11-003) ──────────────────────────
+  // ── Split useMemo into logical groups (S11-003, S24-014) ─────────────────
+  // Each slice only re-renders when its own data changes.
+  // Consumer components are wrapped in React.memo to prevent cascading re-renders.
   const fanState = useMemo(
     () => ({ fan, performanceMode, lastPerfResult, chargingThreshold }),
     [fan, performanceMode, lastPerfResult, chargingThreshold],

@@ -403,7 +403,15 @@
     "permissionDenied": "Permiso denegado — intenta ejecutar como administrador",
     "unknownError": "Ocurrió un error desconocido",
     "connectionFailed": "Error al conectar al servicio de hardware",
-    "commandFailed": "Comando fallido: {error}"
+    "commandFailed": "Comando fallido: {error}",
+    "wmiUnavailable": "La información de hardware no está disponible temporalmente. El sistema puede estar ocupado.",
+    "deviceNotFound": "No se encontró el dispositivo de hardware solicitado.",
+    "permissionDeniedAdmin": "Permiso denegado. Pueden requerirse privilegios de administrador.",
+    "timeout": "La operación agotó el tiempo de espera. Inténtelo de nuevo.",
+    "aiConsentDenied": "El análisis por IA requiere consentimiento de telemetría. Conceda consentimiento en Ajustes.",
+    "aiRequestFailed": "El análisis por IA falló. Compruebe su conexión e inténtelo de nuevo.",
+    "aiResponseInvalid": "La IA devolvió una respuesta no válida. Inténtelo de nuevo.",
+    "unexpected": "Ocurrió un error inesperado."
   },
   "common": {
     "save": "Guardar",
@@ -754,7 +762,10 @@
       "title": "Algo salió mal",
       "message": "Ocurrió un error inesperado. Intente recargar la aplicación.",
       "reload": "Recargar",
-      "report": "Reportar Problema"
+      "report": "Reportar Problema",
+      "compactTitle": "Esta pestaña encontró un error",
+      "compactMessage": "Ocurrió un error al cargar esta pestaña.",
+      "reloadTab": "Recargar pestaña"
     }
   }
 }

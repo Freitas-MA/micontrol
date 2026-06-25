@@ -403,7 +403,15 @@
     "permissionDenied": "Permissão negada — tente executar como administrador",
     "unknownError": "Ocorreu um erro desconhecido",
     "connectionFailed": "Falha ao ligar ao serviço de hardware",
-    "commandFailed": "Comando falhou: {error}"
+    "commandFailed": "Comando falhou: {error}",
+    "wmiUnavailable": "As informações de hardware estão temporariamente indisponíveis. O sistema pode estar ocupado.",
+    "deviceNotFound": "O dispositivo de hardware solicitado não foi encontrado.",
+    "permissionDeniedAdmin": "Permissão negada. Podem ser necessários privilégios de administrador.",
+    "timeout": "A operação expirou. Tente novamente.",
+    "aiConsentDenied": "A análise IA requer consentimento de telemetria. Conceda consentimento nas Definições.",
+    "aiRequestFailed": "A análise IA falhou. Verifique a ligação e tente novamente.",
+    "aiResponseInvalid": "A IA devolveu uma resposta inválida. Tente novamente.",
+    "unexpected": "Ocorreu um erro inesperado."
   },
   "common": {
     "save": "Guardar",
@@ -753,7 +761,10 @@
       "title": "Algo deu errado",
       "message": "Ocorreu um erro inesperado. Tente recarregar a aplicação.",
       "reload": "Recarregar",
-      "report": "Reportar Problema"
+      "report": "Reportar Problema",
+      "compactTitle": "Este separador encontrou um erro",
+      "compactMessage": "Ocorreu um erro ao carregar este separador.",
+      "reloadTab": "Recarregar separador"
     }
   }
 }

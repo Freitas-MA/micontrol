@@ -403,7 +403,15 @@
     "permissionDenied": "Permission denied — try running as administrator",
     "unknownError": "An unknown error occurred",
     "connectionFailed": "Failed to connect to hardware service",
-    "commandFailed": "Command failed: {error}"
+    "commandFailed": "Command failed: {error}",
+    "wmiUnavailable": "Hardware information is temporarily unavailable. The system may be busy.",
+    "deviceNotFound": "The requested hardware device was not found.",
+    "permissionDeniedAdmin": "Permission denied. Administrator privileges may be required.",
+    "timeout": "The operation timed out. Please try again.",
+    "aiConsentDenied": "AI analysis requires telemetry consent. Please grant consent in Settings.",
+    "aiRequestFailed": "AI analysis failed. Please check your connection and try again.",
+    "aiResponseInvalid": "AI returned an invalid response. Please try again.",
+    "unexpected": "An unexpected error occurred."
   },
   "common": {
     "save": "Save",
@@ -763,7 +771,10 @@
       "title": "Something went wrong",
       "message": "An unexpected error occurred. Try reloading the application.",
       "reload": "Reload",
-      "report": "Report Issue"
+      "report": "Report Issue",
+      "compactTitle": "This tab encountered an error",
+      "compactMessage": "An error occurred while loading this tab.",
+      "reloadTab": "Reload tab"
     }
   }
 }

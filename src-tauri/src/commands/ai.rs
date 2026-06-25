@@ -60,6 +60,33 @@ fn validate_output(output: &str) -> Result<String, String> {
     Ok(output.to_string())
 }
 
+/// Validate the AI base URL (S24-015).
+///
+/// Allows HTTPS for any host, or HTTP only for localhost / 127.0.0.1
+/// (e.g. local Ollama instances).  Any other scheme is rejected.
+fn validate_base_url(base_url: &str) -> Result<(), String> {
+    let parsed =
+        url::Url::parse(base_url).map_err(|e| format!("Invalid base URL '{base_url}': {e}"))?;
+
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let host = parsed.host_str().unwrap_or("");
+            if host == "localhost" || host == "127.0.0.1" {
+                Ok(())
+            } else {
+                Err(format!(
+                    "HTTP is only allowed for localhost or 127.0.0.1 (got '{host}'). \
+                     Use HTTPS for remote endpoints."
+                ))
+            }
+        }
+        scheme => Err(format!(
+            "Invalid URL scheme '{scheme}'. Only HTTPS (or HTTP for localhost) is allowed."
+        )),
+    }
+}
+
 /// Analyze system data using the AI provider.
 /// The API key is read from the keyring in the backend — never exposed to the frontend.
 #[tauri::command]
@@ -67,12 +94,19 @@ pub async fn analyze_system(
     system_context: String,
     base_url: String,
     model: String,
+    ai_daily_analyses: u64,
 ) -> Result<String, String> {
     // Check telemetry consent before proceeding
     let consent = get_telemetry_consent().map_err(|e| e.to_string())?;
     if consent != "granted" {
         return Err("consent_denied".to_string());
     }
+
+    // S24-015: Validate base URL before sending any data.
+    validate_base_url(&base_url)?;
+
+    // S24-016: Backend-enforced daily analysis limit.
+    crate::util::ai_usage::check_daily_limit(ai_daily_analyses)?;
 
     // S18-13: Sanitize input — strip control chars and limit length.
     let sanitized = sanitize_input(&system_context);
@@ -162,6 +196,9 @@ pub async fn test_connection(base_url: String, model: String) -> Result<String, 
     if consent != "granted" {
         return Err("consent_denied".to_string());
     }
+
+    // S24-015: Validate base URL before sending any data.
+    validate_base_url(&base_url)?;
 
     let entry =
         Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| format!("Keyring error: {e}"))?;

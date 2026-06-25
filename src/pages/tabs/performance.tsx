@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { t } from '../../hooks/useI18n';
 import { PageHeader } from './PageHeader';
@@ -13,7 +13,7 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-export default function PerformanceTab({ hw, ai, onOpenSettings }: Props) {
+function PerformanceTab({ hw, ai, onOpenSettings }: Props) {
   const { addToast } = useToast();
   const aiApiKeySet = !!ai.settings.openai_api_key;
   const isAiMode = hw.performanceMode === 'smart' || hw.performanceMode === 'smart_acceleration';
@@ -574,3 +574,5 @@ export default function PerformanceTab({ hw, ai, onOpenSettings }: Props) {
     </>
   );
 }
+
+export default memo(PerformanceTab);

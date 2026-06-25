@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 import UpdateManager from '../../components/UpdateManager';
@@ -7,7 +8,7 @@ interface Props {
   hw: Hardware;
 }
 
-export default function UpdatesTab({ hw }: Props) {
+function UpdatesTab({ hw }: Props) {
   return (
     <>
       <PageHeader title={t('updates.title')} subtitle={t('updates.subtitle')} />
@@ -19,3 +20,5 @@ export default function UpdatesTab({ hw }: Props) {
     </>
   );
 }
+
+export default memo(UpdatesTab);

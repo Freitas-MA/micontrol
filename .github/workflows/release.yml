@@ -69,9 +69,8 @@ jobs:
         shell: pwsh
         run: |
           if (-not $env:WINDOWS_CERTIFICATE) {
-            Write-Host "::warning::WINDOWS_CERTIFICATE secret not set. Skipping code signing."
-            Write-Host "::warning::Users will see SmartScreen warnings when installing."
-            exit 0
+            Write-Host "::error::WINDOWS_CERTIFICATE secret is required for production releases"
+            exit 1
           }
 
           # Decode the certificate from base64

@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
+import * as Sentry from '@sentry/react';
 import en from '../i18n/en.json';
 
 /** Dynamic app version from package.json, injected at build time by Vite (S19-15). */
@@ -6,6 +7,8 @@ const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '
 
 interface ErrorBoundaryProps {
   children: ReactNode;
+  /** When true, renders a compact error UI suitable for per-tab boundaries. */
+  compact?: boolean;
 }
 
 interface ErrorBoundaryState {
@@ -32,6 +35,12 @@ function getLocaleStrings() {
       'An unexpected error occurred. Try reloading the application.',
     reload: getNestedValue(strings, 'error.boundary.reload') || 'Reload',
     report: getNestedValue(strings, 'error.boundary.report') || 'Report Issue',
+    compactTitle:
+      getNestedValue(strings, 'error.boundary.compactTitle') || 'This tab encountered an error',
+    compactMessage:
+      getNestedValue(strings, 'error.boundary.compactMessage') ||
+      'An error occurred while loading this tab.',
+    reloadTab: getNestedValue(strings, 'error.boundary.reloadTab') || 'Reload tab',
   };
 }
 
@@ -47,9 +56,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    // S24-009: Report to Sentry, wrapped in try/catch to prevent crash-loop
+    // if Sentry itself fails (e.g. not initialised, network error).
+    try {
+      Sentry.captureException(error, { extra: { componentStack: errorInfo.componentStack } });
+    } catch {
+      // Sentry is best-effort — swallow any error to avoid crash-loop
+    }
   }
 
   handleReload = (): void => {
+    // For compact (per-tab) boundaries, reset state instead of full page reload
+    if (this.props.compact) {
+      this.setState({ hasError: false, error: null });
+      return;
+    }
     window.location.reload();
   };
 
@@ -69,6 +90,71 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   render(): ReactNode {
     if (this.state.hasError) {
       const t = getLocaleStrings();
+
+      // S24-012: Compact mode for per-tab ErrorBoundary
+      if (this.props.compact) {
+        return (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: 300,
+              padding: '24px',
+              gap: 12,
+              color: 'var(--color-text, #cdd6f4)',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+            }}
+          >
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{t.compactTitle}</h2>
+            <p
+              style={{
+                fontSize: 13,
+                color: 'var(--color-text-muted, #a6adc8)',
+                textAlign: 'center',
+                margin: 0,
+              }}
+            >
+              {t.compactMessage}
+            </p>
+            {this.state.error && (
+              <pre
+                role="alert"
+                style={{
+                  fontSize: 11,
+                  color: 'var(--color-text-muted, #a6adc8)',
+                  background: 'var(--color-surface, #1e1e2e)',
+                  padding: 8,
+                  borderRadius: 6,
+                  maxWidth: 500,
+                  overflow: 'auto',
+                  margin: 0,
+                }}
+              >
+                {this.state.error.message}
+              </pre>
+            )}
+            <button
+              type="button"
+              onClick={this.handleReload}
+              style={{
+                padding: '8px 20px',
+                fontSize: 13,
+                fontWeight: 600,
+                border: 'none',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: 'var(--color-accent, #6c8cff)',
+                color: '#fff',
+              }}
+            >
+              {t.reloadTab}
+            </button>
+          </div>
+        );
+      }
+
       return (
         <div
           style={{

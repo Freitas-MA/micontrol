@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 import SystemInfoCard from '../../components/SystemInfoCard';
@@ -12,7 +13,7 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-export default function OverviewTab({ hw, ai, onOpenSettings }: Props) {
+function OverviewTab({ hw, ai, onOpenSettings }: Props) {
   return (
     <>
       <PageHeader title={t('overview.title')} />
@@ -32,3 +33,5 @@ export default function OverviewTab({ hw, ai, onOpenSettings }: Props) {
     </>
   );
 }
+
+export default memo(OverviewTab);

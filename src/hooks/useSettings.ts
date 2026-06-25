@@ -247,6 +247,7 @@ export function useSettings() {
       systemContext,
       baseUrl: settings.openai_base_url,
       model: settings.openai_model || 'gpt-4o-mini',
+      aiDailyAnalyses: settings.ai_daily_analyses,
     });
     return result;
   }
@@ -357,6 +358,7 @@ Be concise. Use short paragraphs with emoji section headers. Max 300 words.`;
       systemContext: prompt,
       baseUrl: settings.openai_base_url,
       model: settings.openai_model || 'gpt-4o-mini',
+      aiDailyAnalyses: settings.ai_daily_analyses,
     });
     return result;
   }

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 import DisplaySettings from '../../components/DisplaySettings';
@@ -7,7 +8,7 @@ interface Props {
   hw: Hardware;
 }
 
-export default function DisplayTab({ hw }: Props) {
+function DisplayTab({ hw }: Props) {
   return (
     <>
       <PageHeader title={t('display.title')} />
@@ -24,3 +25,5 @@ export default function DisplayTab({ hw }: Props) {
     </>
   );
 }
+
+export default memo(DisplayTab);

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 import TouchpadSettings from '../../components/TouchpadSettings';
@@ -7,7 +8,7 @@ interface Props {
   hw: Hardware;
 }
 
-export default function TouchpadTab({ hw }: Props) {
+function TouchpadTab({ hw }: Props) {
   return (
     <>
       <PageHeader title={t('touchpad.title')} />
@@ -24,3 +25,5 @@ export default function TouchpadTab({ hw }: Props) {
     </>
   );
 }
+
+export default memo(TouchpadTab);

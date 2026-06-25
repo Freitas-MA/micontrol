@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { t } from '../hooks/useI18n';
 
 interface Props {
@@ -12,8 +12,62 @@ export default function OnboardingWizard({ onFinish }: Props) {
   const total = STEPS.length;
   const current = STEPS[step];
 
+  // S24-010: Focus trap — refs and handlers (same pattern as ConsentDialog)
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  // Set initial focus to first interactive element on open
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    // Focus the modal container (neutral, not a button)
+    modalRef.current?.focus();
+    return () => {
+      // Restore focus to trigger element on close
+      previouslyFocused.current?.focus();
+    };
+  }, []);
+
+  // Focus trap: Tab cycles within modal; Escape closes
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onFinish();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      const focusable = modalRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable || focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [onFinish],
+  );
+
   return (
     <div
+      ref={overlayRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboarding-title"
+      onKeyDown={handleKeyDown}
       style={{
         position: 'fixed',
         inset: 0,
@@ -26,6 +80,8 @@ export default function OnboardingWizard({ onFinish }: Props) {
       }}
     >
       <div
+        ref={modalRef}
+        tabIndex={-1}
         style={{
           background: 'var(--surface)',
           borderRadius: 16,
@@ -36,6 +92,7 @@ export default function OnboardingWizard({ onFinish }: Props) {
           display: 'flex',
           flexDirection: 'column',
           gap: 24,
+          outline: 'none',
         }}
       >
         {/* Progress indicator */}
@@ -70,7 +127,7 @@ export default function OnboardingWizard({ onFinish }: Props) {
         <div style={{ minHeight: 200, display: 'flex', flexDirection: 'column', gap: 16 }}>
           {current === 'welcome' && (
             <>
-              <h2 style={{ margin: 0, fontSize: 24, textAlign: 'center' }}>
+              <h2 id="onboarding-title" style={{ margin: 0, fontSize: 24, textAlign: 'center' }}>
                 {t('onboarding.welcome.title')}
               </h2>
               <p
