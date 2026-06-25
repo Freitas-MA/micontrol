@@ -16,13 +16,13 @@ jobs:
       contents: write  # Required to create GitHub Release
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@a54c799925e5816e3d6ce8a3d7f2b1d4f1b3e5c8 # stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3907afe6564 # v4
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -34,7 +34,7 @@ jobs:
         run: npm run version:sync
 
       - name: Cache cargo
-        uses: actions/cache@6849a6489940f01f8475df2b1b9d7f6c5e8b6b1f # v4
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -66,44 +66,45 @@ jobs:
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
         run: |
-          if [ -z "$WINDOWS_CERTIFICATE" ]; then
-            echo "::warning::WINDOWS_CERTIFICATE secret not set. Skipping code signing."
-            echo "::warning::Users will see SmartScreen warnings when installing."
+          if (-not $env:WINDOWS_CERTIFICATE) {
+            Write-Host "::warning::WINDOWS_CERTIFICATE secret not set. Skipping code signing."
+            Write-Host "::warning::Users will see SmartScreen warnings when installing."
             exit 0
-          fi
+          }
 
           # Decode the certificate from base64
-          echo "$WINDOWS_CERTIFICATE" | base64 -d > cert.pfx
+          [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE) | Set-Content -Path cert.pfx -AsByteStream
 
           # Find the NSIS installer (only NSIS is supported, no MSI)
-          EXE_PATH=$(find src-tauri/target/release/bundle -name "*.exe" -type f | head -1)
+          $exePath = Get-ChildItem -Path src-tauri/target/release/bundle -Filter "*.exe" -Recurse | Select-Object -First 1
 
           # Sign the EXE installer — fail the build if signing fails
-          if [ -n "$EXE_PATH" ]; then
-            echo "Signing $EXE_PATH..."
-            signtool sign /f cert.pfx /p "$WINDOWS_CERTIFICATE_PASSWORD" \
-              /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com \
-              "$EXE_PATH"
-            if [ $? -ne 0 ]; then
-              echo "::error::Code signing failed for $EXE_PATH"
-              rm -f cert.pfx
-              exit 1
-            fi
-            # Verify the signature
-            signtool verify /pa /v "$EXE_PATH" || {
-              echo "::error::Signature verification failed for $EXE_PATH"
-              rm -f cert.pfx
+          if ($exePath) {
+            Write-Host "Signing $($exePath.FullName)..."
+            signtool sign /f cert.pfx /p "$env:WINDOWS_CERTIFICATE_PASSWORD" `
+              /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com `
+              "$($exePath.FullName)"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error::Code signing failed for $($exePath.FullName)"
+              Remove-Item -Path cert.pfx -Force -ErrorAction SilentlyContinue
               exit 1
             }
-            echo "Code signing successful and verified."
-          else
-            echo "::warning::No EXE installer found to sign"
-          fi
+            # Verify the signature
+            signtool verify /pa /v "$($exePath.FullName)"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error::Signature verification failed for $($exePath.FullName)"
+              Remove-Item -Path cert.pfx -Force -ErrorAction SilentlyContinue
+              exit 1
+            }
+            Write-Host "Code signing successful and verified."
+          } else {
+            Write-Host "::warning::No EXE installer found to sign"
+          }
 
           # Clean up the certificate file
-          rm -f cert.pfx
-        shell: bash
+          Remove-Item -Path cert.pfx -Force -ErrorAction SilentlyContinue
 
       - name: Generate latest.json updater manifest
         run: |
@@ -144,7 +145,7 @@ jobs:
         shell: pwsh
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           name: tauri-release-artifacts
           path: |
@@ -153,7 +154,7 @@ jobs:
             latest.json
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |

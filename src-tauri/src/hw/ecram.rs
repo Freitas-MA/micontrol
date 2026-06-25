@@ -204,10 +204,11 @@ fn validate_eram_address(addr: u64) -> HardwareResult<()> {
 /// Returns an error if the device cannot be opened (driver not loaded,
 /// insufficient privileges) or if the IOCTL fails.
 pub fn read_ecram(phys_addr: u64, byte_count: usize) -> HardwareResult<Vec<u8>> {
-    assert!(
-        byte_count <= 0x100,
-        "byte_count must be ≤ 0x100 (driver limit)"
-    );
+    if byte_count > 0x100 {
+        return Err(HardwareError::Ecram(format!(
+            "byte_count {byte_count} exceeds driver limit (0x100)"
+        )));
+    }
 
     #[cfg(windows)]
     {
@@ -621,10 +622,17 @@ fn validate_write(phys_addr: u64, data: &[u8]) -> HardwareResult<()> {
 /// Writing to EC RAM can cause unpredictable hardware behaviour if the wrong
 /// addresses or values are used.  Callers must validate inputs carefully.
 pub fn write_ecram(phys_addr: u64, data: &[u8]) -> HardwareResult<()> {
-    assert!(
-        !data.is_empty() && data.len() <= 0x100,
-        "data must be 1..=0x100 bytes (driver limit)"
-    );
+    if data.is_empty() {
+        return Err(HardwareError::Ecram(
+            "data must not be empty (1..=0x100 bytes)".to_string(),
+        ));
+    }
+    if data.len() > 0x100 {
+        return Err(HardwareError::Ecram(format!(
+            "data length {} exceeds driver limit (0x100)",
+            data.len()
+        )));
+    }
 
     // Defense-in-depth: validate the address against the allowlist before
     // touching hardware.  This is a second layer on top of the command-layer

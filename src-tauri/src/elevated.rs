@@ -87,7 +87,10 @@ pub fn run() -> ! {
                                             dispatch(cmd)
                                         }
                                     } else {
-                                        dispatch(cmd)
+                                        log::warn!(
+                                            "Elevated command rejected: missing required nonce field"
+                                        );
+                                        make_err("Missing required nonce field".to_string())
                                     }
                                 }
                                 Err(e) => make_err(format!("Invalid command: {e}")),
@@ -141,7 +144,11 @@ fn save_nonces(nonces: &HashMap<String, u64>) {
         let _ = std::fs::create_dir_all(parent);
     }
     if let Ok(json) = serde_json::to_string(nonces) {
-        let _ = std::fs::write(&path, json);
+        if std::fs::write(&path, json).is_ok() {
+            if let Err(e) = auth::restrict_file_acl(&path) {
+                log::warn!("Failed to restrict ACL on nonce store: {e}");
+            }
+        }
     }
 }
 

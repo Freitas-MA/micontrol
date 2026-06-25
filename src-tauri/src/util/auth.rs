@@ -218,13 +218,15 @@ pub fn verify_payload(payload: &mut serde_json::Value, key: &[u8]) -> Result<(),
         return Err("HMAC verification failed".to_string());
     }
 
-    // Check timestamp freshness (if present)
-    if let Some(ts) = payload.get("created_at_ms").and_then(|v| v.as_u64()) {
-        if !is_timestamp_fresh(ts) {
-            return Err(format!(
-                "Command timestamp {ts} is stale (older than {MAX_COMMAND_AGE_MS} ms)"
-            ));
-        }
+    // Check timestamp freshness — fail-closed if the field is absent.
+    let ts = payload
+        .get("created_at_ms")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "Missing required created_at_ms field".to_string())?;
+    if !is_timestamp_fresh(ts) {
+        return Err(format!(
+            "Command timestamp {ts} is stale (older than {MAX_COMMAND_AGE_MS} ms)"
+        ));
     }
 
     Ok(())

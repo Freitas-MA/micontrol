@@ -153,6 +153,15 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
+    /// Create an `ErrorResponse` with an explicit code and message.
+    #[allow(dead_code)]
+    pub fn new(code: &str, message: &str) -> Self {
+        Self {
+            code: code.to_string(),
+            message: message.to_string(),
+        }
+    }
+
     /// Create an `ErrorResponse` from a `HardwareError`.
     pub fn from_error(e: &HardwareError) -> Self {
         Self {

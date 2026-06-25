@@ -543,6 +543,20 @@ function IotModulePanel({ hw }: { hw: HardwareInstance }) {
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
             Direct write to any physical address via IOCTL 0x22E004.
           </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--warning)',
+              background: 'var(--bg-hover)',
+              border: '1px solid var(--warning)',
+              borderRadius: 'var(--r-xs)',
+              padding: '8px 10px',
+              marginBottom: 10,
+            }}
+          >
+            ⚠ DANGER: Writing to a raw physical address can permanently brick your device.
+            Double-check the address and data before proceeding.
+          </div>
           <div style={{ display: 'grid', gap: 8 }}>
             <input
               className="text-input"
@@ -564,6 +578,30 @@ function IotModulePanel({ hw }: { hw: HardwareInstance }) {
                 disabled={loading || !writeHex.trim()}
                 onClick={async () => {
                   setWriteStatus(null);
+
+                  // Validate address format (hex, with or without 0x prefix)
+                  const addrClean = writeAddress.trim().replace(/^0[xX]/, '');
+                  if (!/^[0-9A-Fa-f]+$/.test(addrClean)) {
+                    setWriteStatus('Write failed: invalid address format (must be hex)');
+                    return;
+                  }
+
+                  // Validate hex data format (whitespace stripped)
+                  const hexClean = writeHex.replace(/\s+/g, '');
+                  if (!/^[0-9A-Fa-f]+$/.test(hexClean)) {
+                    setWriteStatus('Write failed: invalid hex data (must be 0-9, A-F)');
+                    return;
+                  }
+
+                  // Confirmation dialog — raw physical writes can brick the device
+                  if (
+                    !window.confirm(
+                      '⚠️ WARNING: Writing to a raw physical address can brick your device. Are you sure?',
+                    )
+                  ) {
+                    return;
+                  }
+
                   try {
                     await hw.writeIotHex(writeAddress, writeHex);
                     setWriteStatus('Write OK');

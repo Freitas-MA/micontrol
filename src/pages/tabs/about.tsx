@@ -1,6 +1,8 @@
 import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
+
 export default function AboutTab() {
   return (
     <>
@@ -14,7 +16,7 @@ export default function AboutTab() {
             </div>
             <div className="stat-row">
               <span className="stat-label">{t('about.version')}</span>
-              <span className="stat-value">0.1.0</span>
+              <span className="stat-value">{APP_VERSION}</span>
             </div>
             <div className="stat-row">
               <span className="stat-label">{t('about.device')}</span>

@@ -2,6 +2,26 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useToast } from '../contexts/ToastContext';
 
+/** Regex matching one or more hex digits (no whitespace, no 0x prefix). */
+const HEX_RE = /^[0-9A-Fa-f]+$/;
+
+/** Known-safe EC RAM physical address range (ERAM base through IoTDevice state block end). */
+const EC_RAM_SAFE_MIN = 0xfe0b0300;
+const EC_RAM_SAFE_MAX = 0xfe0b0f80;
+
+/** Parse a hex address string (with or without 0x prefix) into a number, or null if invalid. */
+function parseHexAddress(addr: string): number | null {
+  const cleaned = addr.trim().replace(/^0[xX]/, '');
+  if (!HEX_RE.test(cleaned)) return null;
+  return parseInt(cleaned, 16);
+}
+
+/** Validate that a hex data string contains only hex characters (whitespace stripped). */
+function isValidHexData(hex: string): boolean {
+  const cleaned = hex.replace(/\s+/g, '');
+  return cleaned.length > 0 && HEX_RE.test(cleaned);
+}
+
 export default function EcrDebugPanel() {
   const [hexData, setHexData] = useState('');
   const [address, setAddress] = useState('');
@@ -27,6 +47,36 @@ export default function EcrDebugPanel() {
 
   const handleWrite = async () => {
     if (!address || !hexData) return;
+
+    // Validate hex data format
+    if (!isValidHexData(hexData)) {
+      addToast({
+        message: 'Invalid hex data: must contain only hex characters (0-9, A-F)',
+        type: 'error',
+      });
+      return;
+    }
+
+    // Validate address format and range
+    const addrNum = parseHexAddress(address);
+    if (addrNum === null) {
+      addToast({ message: 'Invalid address format: must be a hex number', type: 'error' });
+      return;
+    }
+    if (addrNum < EC_RAM_SAFE_MIN || addrNum >= EC_RAM_SAFE_MAX) {
+      addToast({
+        message: `Address out of safe EC RAM range (0x${EC_RAM_SAFE_MIN.toString(16).toUpperCase()}–0x${(EC_RAM_SAFE_MAX - 1).toString(16).toUpperCase()})`,
+        type: 'error',
+      });
+      return;
+    }
+
+    // Confirmation dialog — writing to EC RAM can brick the device
+    const confirmed = window.confirm(
+      '⚠️ WARNING: Writing to EC RAM can brick your device. Are you sure you want to proceed?',
+    );
+    if (!confirmed) return;
+
     setLoading(true);
     try {
       await invoke('write_iot_hex', {

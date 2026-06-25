@@ -16,15 +16,15 @@ jobs:
     name: Rust (check + clippy + test)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@a54c799925e5816e3d6ce8a3d7f2b1d4f1b3e5c8 # stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
       - name: Cache cargo registry
-        uses: actions/cache@6849a6489940f01f8475df2b1b9d7f6c5e8b6b1f # v4
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -54,10 +54,10 @@ jobs:
     name: Frontend (build + lint + format)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3907afe6564 # v4
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -84,16 +84,16 @@ jobs:
     name: Rust coverage
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@a54c799925e5816e3d6ce8a3d7f2b1d4f1b3e5c8 # stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
 
       - name: Cache cargo registry
-        uses: actions/cache@6849a6489940f01f8475df2b1b9d7f6c5e8b6b1f # v4
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -105,7 +105,7 @@ jobs:
         run: cargo tarpaulin --manifest-path src-tauri/Cargo.toml --out xml --output-dir coverage/
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@b9f0e1e4e5b1f3a7c9d2e8b6f4a1c3d5e7b9f2a6 # v4
+        uses: codecov/codecov-action@v4
         with:
           files: ./coverage/cobertura.xml
           flags: rust
@@ -118,10 +118,10 @@ jobs:
     name: Frontend coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3907afe6564 # v4
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
@@ -132,7 +132,7 @@ jobs:
         run: npx vitest run --coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@b9f0e1e4e5b1f3a7c9d2e8b6f4a1c3d5e7b9f2a6 # v4
+        uses: codecov/codecov-action@v4
         with:
           files: ./coverage/lcov.info
           flags: frontend
@@ -147,13 +147,13 @@ jobs:
     # Only run on main branch pushes, not PRs (to keep PR CI fast)
     if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@a54c799925e5816e3d6ce8a3d7f2b1d4f1b3e5c8 # stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3907afe6564 # v4
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -162,7 +162,7 @@ jobs:
         run: npm ci
 
       - name: Cache cargo
-        uses: actions/cache@6849a6489940f01f8475df2b1b9d7f6c5e8b6b1f # v4
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -177,8 +177,8 @@ jobs:
   version-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3907afe6564 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm ci
@@ -187,8 +187,8 @@ jobs:
   i18n-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3907afe6564 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm ci

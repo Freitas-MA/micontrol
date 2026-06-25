@@ -3,8 +3,5 @@
   "identifier": "default",
   "description": "Default capabilities for MiControl",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "shell:default"
-  ]
+  "permissions": ["core:default"]
 }

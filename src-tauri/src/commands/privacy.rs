@@ -112,11 +112,32 @@ pub async fn export_user_data(app: AppHandle) -> Result<String, String> {
 }
 
 /// Open a file path in the system file explorer (selects the file).
+///
+/// The path must resolve to within the app data directory or the export
+/// (temp) directory — arbitrary paths are rejected to prevent directory
+/// traversal attacks.
 #[tauri::command]
-pub async fn reveal_in_explorer(path: String) -> Result<(), String> {
+pub async fn reveal_in_explorer(app: AppHandle, path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !p.exists() {
         return Err(format!("File does not exist: {path}"));
+    }
+
+    // Resolve the canonical path to prevent traversal tricks (e.g. "..\..").
+    let canonical = p
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve path: {e}"))?;
+
+    // Allow only paths within the app data directory or the export temp directory.
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("AppData dir unavailable: {e}"))?;
+    let export_dir = std::env::temp_dir().join("micontrol_export");
+
+    let is_allowed = canonical.starts_with(&app_data) || canonical.starts_with(&export_dir);
+    if !is_allowed {
+        return Err("Access denied: path is outside the allowed directories".to_string());
     }
 
     #[cfg(windows)]

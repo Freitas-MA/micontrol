@@ -64,6 +64,9 @@ export default function ProcessModal({ open, onClose, resource, getProcessList }
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Top Processes — ${RESOURCE_LABELS[resource]}`}
         style={{
           background: 'var(--color-surface, #1e1e2e)',
           border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
@@ -90,6 +93,7 @@ export default function ProcessModal({ open, onClose, resource, getProcessList }
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             style={{
               background: 'none',
               border: 'none',
