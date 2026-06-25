@@ -1,21 +1,44 @@
-# Sprint Plan Overview — Post-Sprints 13-15 Stability Report Remediation
+# Sprint Plan Overview — Stability Report Remediation (v1 + v2)
 
 **Created:** 2026-06-25
-**Source:** `docs/stability-report-2026-06-24-post-sprints-13-15.md`
-**Total findings to address:** 63 (out of 178 total)
-**Total estimated tickets:** 63
-**Total estimated effort:** 9–13 days
+**Last Updated:** 2026-06-25 (v2 sprints added)
+**Sources:**
+
+- v1: `docs/stability-report-2026-06-24-post-sprints-13-15.md` (Sprints 16–19)
+- v2: `docs/STABILITY_REPORT_v2.md` (Sprints 22–25)
+- Sprints 20–21: Post-v1 audit CRITICAL/HIGH fixes (committed d514bdf)
+
+**Total findings addressed:** 63 (v1) + 44 (v2) = 107
+**Total estimated tickets:** 63 (v1) + 44 (v2) = 107
+**Total estimated effort:** 9–13 days (v1) + 9–12 days (v2) = 18–25 days
 
 ---
 
 ## Sprint Summary
 
-| Sprint | Priority    | Focus                      | Tickets | Effort   | File                                 |
-| ------ | ----------- | -------------------------- | ------- | -------- | ------------------------------------ |
-| 16     | P0 CRITICAL | Pre-release blockers       | 15      | 2–3 days | `sprint-16-p0-critical-fixes.md`     |
-| 17     | P1 HIGH     | Security & DevOps          | 15      | 2–3 days | `sprint-17-p1-security-devops.md`    |
-| 18     | P1 HIGH     | Error handling & stability | 15      | 2–3 days | `sprint-18-p1-error-stability.md`    |
-| 19     | P2 MEDIUM   | Architecture & tests       | 18      | 3–4 days | `sprint-19-p2-architecture-tests.md` |
+### v1 Sprints (from post-sprints-13-15 report) — ✅ ALL COMPLETE
+
+| Sprint | Priority    | Focus                      | Tickets | Effort   | Status     | File                                        |
+| ------ | ----------- | -------------------------- | ------- | -------- | ---------- | ------------------------------------------- |
+| 16     | P0 CRITICAL | Pre-release blockers       | 15      | 2–3 days | ✅ de5e344 | `sprint-16-p0-critical-fixes/sprint.md`     |
+| 17     | P1 HIGH     | Security & DevOps          | 15      | 2–3 days | ✅ cb9005f | `sprint-17-p1-security-devops/sprint.md`    |
+| 18     | P1 HIGH     | Error handling & stability | 15      | 2–3 days | ✅ c76236f | `sprint-18-p1-error-stability/sprint.md`    |
+| 19     | P2 MEDIUM   | Architecture & tests       | 18      | 3–4 days | ✅ 1a383c0 | `sprint-19-p2-architecture-tests/sprint.md` |
+
+### Post-v1 Audit Fixes — ✅ COMPLETE
+
+| Sprint | Priority | Focus                       | Tickets | Effort | Status     | File                                       |
+| ------ | -------- | --------------------------- | ------- | ------ | ---------- | ------------------------------------------ |
+| 20–21  | P0/P1    | Post-v1 audit CRITICAL/HIGH | 9+6     | 2 days | ✅ d514bdf | `sprint-20-21-p0-p1-audit-fixes/sprint.md` |
+
+### v2 Sprints (from Stability Report v2) — 🔄 PLANNED
+
+| Sprint | Priority    | Focus                          | Tickets | Effort  | Status     | File                                        |
+| ------ | ----------- | ------------------------------ | ------- | ------- | ---------- | ------------------------------------------- |
+| 22     | P0 CRITICAL | Async blocking I/O             | 2       | ~1 day  | 🔄 Planned | `sprint-22-p0-async-blocking/sprint.md`     |
+| 23     | P1 HIGH     | Stability & security edges     | 5       | ~3 days | 🔄 Planned | `sprint-23-p1-stability-security/sprint.md` |
+| 24     | P2 MEDIUM   | Architecture/UI/Perf/AI/DevOps | 19      | ~5 days | 🔄 Planned | `sprint-24-p2-medium-batch/sprint.md`       |
+| 25     | P3 LOW      | Polish & consistency           | 18      | ~3 days | 🔄 Planned | `sprint-25-p3-low-polish/sprint.md`         |
 
 ---
 
@@ -111,14 +134,34 @@ Key LOW findings addressed:
 
 ## Execution Order
 
+### v1 Sprints (COMPLETE)
+
 ```
-Sprint 16 (P0 Critical) ──────► Sprint 17 (P1 Security/DevOps) ──────► Sprint 18 (P1 Error/Stability) ──────► Sprint 19 (P2 Arch/Tests)
-   15 tickets, 2-3 days              15 tickets, 2-3 days                   15 tickets, 2-3 days                  18 tickets, 3-4 days
+Sprint 16 (P0) ──► Sprint 17 (P1) ──► Sprint 18 (P1) ──► Sprint 19 (P2)
+   ✅ de5e344        ✅ cb9005f        ✅ c76236f          ✅ 1a383c0
 ```
 
-**Sprints 16-17 can partially overlap** — S17-07 through S17-10 (docs/templates) are independent of S16 code changes.
+### Post-v1 Audit (COMPLETE)
 
-**Sprints 18-19 are sequential** — S19-02 (touchpad split) depends on S18-02 (touchpad lock_or_recover) being done first.
+```
+Sprint 20–21 (P0/P1) ──► Stability Report v2
+   ✅ d514bdf
+```
+
+### v2 Sprints (PLANNED)
+
+```
+Sprint 22 (P0) ──► Sprint 23 (P1) ──► Sprint 24 (P2) ──► Sprint 25 (P3) ──► Final Audit
+   2 tickets         5 tickets         19 tickets         18 tickets
+   ~1 day            ~3 days           ~5 days            ~3 days
+```
+
+**Sprint 22 must execute first** (CRITICAL — async starvation).
+**Sprint 23 next** (HIGH — stability edge cases).
+**After S22+S23:** Run audit to verify 0 CRITICAL / 0 HIGH.
+**Sprint 24** batches all MEDIUM findings (3 parallel batches).
+**Sprint 25** batches all LOW findings (2 parallel batches).
+**After S25:** Run final audit to verify 0 CRITICAL / 0 HIGH / 0 MEDIUM.
 
 ---
 
@@ -171,4 +214,4 @@ After completing Sprints 16-19:
 
 ---
 
-_Generated 2026-06-25 based on `docs/stability-report-2026-06-24-post-sprints-13-15.md`_
+_Generated 2026-06-25 based on `docs/stability-report-2026-06-24-post-sprints-13-15.md` (v1) and `docs/STABILITY_REPORT_v2.md` (v2). Sprints 16–21 complete. Sprints 22–25 planned._
