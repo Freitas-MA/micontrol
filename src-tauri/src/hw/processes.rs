@@ -64,7 +64,10 @@ pub fn get_process_list() -> Vec<ProcessInfo> {
                 .unwrap_or_default())
         }) {
             Ok(rows) => rows,
-            Err(_) => return vec![],
+            Err(e) => {
+                log::warn!("WMI process query failed: {e}");
+                return vec![];
+            }
         };
 
         let mut procs: Vec<ProcessInfo> = rows

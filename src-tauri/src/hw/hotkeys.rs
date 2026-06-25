@@ -2675,7 +2675,7 @@ mod wmi_debounce_tests {
         // The `wmi_key_debounced` function initializes the OnceLock lazily,
         // so any prior entries are simply discarded by creating a new map.
         if let Some(mtx) = WMI_DEBOUNCE.get() {
-            let mut map = mtx.lock().unwrap();
+            let mut map = lock_or_recover(mtx);
             map.clear();
         }
     }
@@ -2683,7 +2683,7 @@ mod wmi_debounce_tests {
     /// A different key fired within the debounce window must NOT be suppressed.
     #[test]
     fn test_different_keys_do_not_debounce_each_other() {
-        let _guard = SERIAL.lock().unwrap();
+        let _guard = lock_or_recover(&SERIAL);
         reset_debounce();
 
         // Fire key A — should not be debounced.
@@ -2708,7 +2708,7 @@ mod wmi_debounce_tests {
     /// The same key fired twice within the debounce window must be suppressed.
     #[test]
     fn test_same_key_is_debounced() {
-        let _guard = SERIAL.lock().unwrap();
+        let _guard = lock_or_recover(&SERIAL);
         reset_debounce();
 
         assert!(
@@ -2724,7 +2724,7 @@ mod wmi_debounce_tests {
     /// Sanity-check that the function returns false when called once (no debounce history).
     #[test]
     fn test_first_call_not_debounced() {
-        let _guard = SERIAL.lock().unwrap();
+        let _guard = lock_or_recover(&SERIAL);
         reset_debounce();
 
         assert!(
@@ -2738,7 +2738,7 @@ mod wmi_debounce_tests {
     /// two keys with different distinguish bytes should not suppress each other.
     #[test]
     fn test_per_key_independence_by_class() {
-        let _guard = SERIAL.lock().unwrap();
+        let _guard = lock_or_recover(&SERIAL);
         reset_debounce();
 
         // Simulate two different HID classes with the same distinguish byte.

@@ -19,6 +19,11 @@ pub enum HardwareError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
+    /// WMI connection-level failure (COM init, namespace binding, cache unavailable).
+    /// Distinct from [`HardwareError::WmiQuery`] which covers transient query errors.
+    #[error("WMI connection error: {0}")]
+    WmiConnection(String),
+
     /// I/O error (file, pipe, device).
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -84,6 +89,7 @@ impl HardwareError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::WmiQuery { .. } => "wmi_query",
+            Self::WmiConnection(_) => "wmi_connection",
             Self::Io(_) => "io",
             Self::Hid(_) => "hid",
             Self::InvalidConfig(_) => "invalid_config",

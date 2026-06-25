@@ -4,6 +4,7 @@
 //! or IoT service for Xiaomi-specific features.
 
 use crate::hw::errors::{HardwareError, HardwareResult};
+use crate::util::panic::lock_or_recover;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
@@ -428,7 +429,7 @@ fn get_haptics_handle() -> windows::core::Result<windows::Win32::Foundation::HAN
     };
 
     let lock = HAPTICS_HANDLE.get_or_init(|| std::sync::Mutex::new(None));
-    let mut guard = lock.lock().unwrap();
+    let mut guard = lock_or_recover(lock);
 
     if let Some(send_handle) = *guard {
         let handle = send_handle.0;
@@ -465,7 +466,7 @@ fn get_haptics_handle() -> windows::core::Result<windows::Win32::Foundation::HAN
 #[cfg(windows)]
 pub fn close_haptics_handle() {
     if let Some(lock) = HAPTICS_HANDLE.get() {
-        let mut guard = lock.lock().unwrap();
+        let mut guard = lock_or_recover(lock);
         if let Some(send_handle) = guard.take() {
             // SAFETY: handle was created by CreateFileW.
             unsafe {

@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getUserFriendlyMessage, parseErrorResponse } from '../types/error';
 
 // ── Type definitions matching Rust structs ───────────────────────────────────
 
@@ -230,7 +231,9 @@ export function useHardware() {
   const [lastPerfResult, setLastPerfResult] = useState<PerformanceResult | null>(null);
   const [chargingThreshold, setChargingThresholdState] = useState<number>(80);
   const [loading, setLoading] = useState(true);
-  const [error] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const clearError = useCallback(() => setError(null), []);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [loadingUpdate, setLoadingUpdate] = useState(false);
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
@@ -265,8 +268,10 @@ export function useHardware() {
       if (systemResult) {
         setSystemInfo(systemResult);
       }
+      setError(null);
     } catch (e) {
       console.error('Fast poll failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
     }
   }, []);
 
@@ -283,8 +288,10 @@ export function useHardware() {
       if (touchpadResult !== null && Date.now() >= touchpadDirtyUntil.current) {
         setTouchpad(touchpadResult);
       }
+      setError(null);
     } catch (e) {
       console.error('Slow poll failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
     }
   }, []);
 
@@ -319,8 +326,10 @@ export function useHardware() {
           if (batteryResult !== null) setBattery(batteryResult);
           if (displayResult !== null) setDisplay(displayResult);
           if (touchpadResult !== null) setTouchpad(touchpadResult);
+          setError(null);
         } catch (e) {
           console.error('Initial hardware load failed:', e);
+          setError(getUserFriendlyMessage(parseErrorResponse(e)));
         } finally {
           setLoading(false);
         }
@@ -355,9 +364,11 @@ export function useHardware() {
     try {
       const result = await invoke<PerformanceResult>('set_performance_mode', { mode });
       setLastPerfResult(result);
+      setError(null);
     } catch (e) {
       setPerformanceModeState(snap);
       console.error('[perf] set_performance_mode failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -367,9 +378,11 @@ export function useHardware() {
     setChargingThresholdState(threshold);
     try {
       await invoke('set_charging_threshold', { threshold });
+      setError(null);
     } catch (e) {
       setChargingThresholdState(snap);
       console.error('[charge] set_charging_threshold failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -379,9 +392,11 @@ export function useHardware() {
     setDisplay((prev) => (prev ? { ...prev, brightness: level } : null));
     try {
       await invoke('set_brightness', { level });
+      setError(null);
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_brightness failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -391,9 +406,11 @@ export function useHardware() {
     setDisplay((prev) => (prev ? { ...prev, hdr_enabled: enabled } : null));
     try {
       await invoke('set_hdr', { enabled });
+      setError(null);
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_hdr failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -403,9 +420,11 @@ export function useHardware() {
     setDisplay((prev) => (prev ? { ...prev, ai_brightness: enabled } : null));
     try {
       await invoke('set_ai_brightness', { enabled });
+      setError(null);
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_ai_brightness failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -417,9 +436,11 @@ export function useHardware() {
     );
     try {
       await invoke('set_ai_brightness_config', { config });
+      setError(null);
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_ai_brightness_config failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -431,9 +452,11 @@ export function useHardware() {
     );
     try {
       await invoke('set_fan_mode', { mode, speed_percent: speedPercent ?? 50 });
+      setError(null);
     } catch (e) {
       setFan(snap);
       console.error('[fan] set_fan_mode failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -457,10 +480,12 @@ export function useHardware() {
       try {
         await invoke('set_touchpad_sensitivity', { sensitivity });
         touchpadDirtyUntil.current = 0;
+        setError(null);
       } catch (e) {
         setTouchpad(snap);
         touchpadDirtyUntil.current = 0;
         console.error('[touchpad] set_touchpad_sensitivity failed:', e);
+        setError(getUserFriendlyMessage(parseErrorResponse(e)));
         throw e;
       }
     },
@@ -474,10 +499,12 @@ export function useHardware() {
     try {
       await invoke('set_touchpad_haptics', { enabled });
       touchpadDirtyUntil.current = 0;
+      setError(null);
     } catch (e) {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_haptics failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -489,10 +516,12 @@ export function useHardware() {
     try {
       await invoke('set_touchpad_haptics_intensity', { intensity });
       touchpadDirtyUntil.current = 0;
+      setError(null);
     } catch (e) {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_haptics_intensity failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -504,10 +533,12 @@ export function useHardware() {
     try {
       await invoke('set_touchpad_gesture_screenshot', { enabled });
       touchpadDirtyUntil.current = 0;
+      setError(null);
     } catch (e) {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_gesture_screenshot failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -519,10 +550,12 @@ export function useHardware() {
     try {
       await invoke('set_touchpad_repress', { enabled });
       touchpadDirtyUntil.current = 0;
+      setError(null);
     } catch (e) {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_repress failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -534,10 +567,12 @@ export function useHardware() {
     try {
       await invoke('set_touchpad_edge_slide', { enabled });
       touchpadDirtyUntil.current = 0;
+      setError(null);
     } catch (e) {
       setTouchpad(snap);
       touchpadDirtyUntil.current = 0;
       console.error('[touchpad] set_touchpad_edge_slide failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -547,9 +582,11 @@ export function useHardware() {
     setDisplay((prev) => (prev ? { ...prev, refresh_rate_hz: hz } : null));
     try {
       await invoke('set_refresh_rate', { hz });
+      setError(null);
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_refresh_rate failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -559,18 +596,23 @@ export function useHardware() {
     setDisplay((prev) => (prev ? { ...prev, adaptive_refresh_rate: enabled } : null));
     try {
       await invoke('set_adaptive_refresh_rate', { enabled });
+      setError(null);
     } catch (e) {
       setDisplay(snap);
       console.error('[display] set_adaptive_refresh_rate failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
 
   const getProcessList = useCallback(async () => {
     try {
-      return await invoke<ProcessInfo[]>('get_process_list');
+      const result = await invoke<ProcessInfo[]>('get_process_list');
+      setError(null);
+      return result;
     } catch (e) {
       console.error('[sys] get_process_list failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       return [];
     }
   }, []);
@@ -585,9 +627,11 @@ export function useHardware() {
         new Promise<void>((resolve) => setTimeout(resolve, 2000)),
       ]);
       setUpdateStatus(status);
+      setError(null);
     } catch (e) {
       // non-fatal — update panel shows fallback
       console.warn('get_update_status error:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
     } finally {
       setLoadingUpdate(false);
     }
@@ -602,8 +646,10 @@ export function useHardware() {
     try {
       const profile = await invoke<HardwareProfile | null>('get_hardware_profile');
       setHardwareProfile(profile ?? null);
+      setError(null);
     } catch (e) {
       console.warn('get_hardware_profile error:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
     }
   }, []);
 
@@ -612,9 +658,11 @@ export function useHardware() {
     try {
       const profile = await invoke<HardwareProfile>('run_hardware_discovery');
       setHardwareProfile(profile);
+      setError(null);
       return profile;
     } catch (e) {
       console.warn('run_hardware_discovery error:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     } finally {
       setLoadingDiscovery(false);
@@ -623,9 +671,12 @@ export function useHardware() {
 
   const installDriver = useCallback(async (driverName: string) => {
     try {
-      return await invoke<string>('install_driver', { driverName });
+      const result = await invoke<string>('install_driver', { driverName });
+      setError(null);
+      return result;
     } catch (e) {
       console.error('[setup] install_driver failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -634,16 +685,21 @@ export function useHardware() {
   const writeAiPerfLog = useCallback(async (entry: AiPerfLogEntry) => {
     try {
       await invoke('write_ai_perf_log', { entry });
+      setError(null);
     } catch (e) {
       console.error('[perf] write_ai_perf_log failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
     }
   }, []);
 
   const readAiPerfLogs = useCallback(async (limit?: number) => {
     try {
-      return await invoke<AiPerfLogEntry[]>('read_ai_perf_logs', { limit });
+      const result = await invoke<AiPerfLogEntry[]>('read_ai_perf_logs', { limit });
+      setError(null);
+      return result;
     } catch (e) {
       console.error('[perf] read_ai_perf_logs failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       return [];
     }
   }, []);
@@ -651,25 +707,33 @@ export function useHardware() {
   const openAiLogsDir = useCallback(async () => {
     try {
       await invoke('open_ai_logs_dir');
+      setError(null);
     } catch (e) {
       console.warn('[perf] open_ai_logs_dir failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
     }
   }, []);
 
   const getEcramMap = useCallback(async () => {
     try {
-      return await invoke<EramMap>('get_ecram_map');
+      const result = await invoke<EramMap>('get_ecram_map');
+      setError(null);
+      return result;
     } catch (e) {
       console.error('[iot] get_ecram_map failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
 
   const getIotRegionHex = useCallback(async (region: IotRegionName) => {
     try {
-      return await invoke<string>('get_iot_region_hex', { region });
+      const result = await invoke<string>('get_iot_region_hex', { region });
+      setError(null);
+      return result;
     } catch (e) {
       console.error('[iot] get_iot_region_hex failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -677,26 +741,34 @@ export function useHardware() {
   const writeIotHex = useCallback(async (address: string, hexData: string) => {
     try {
       await invoke('write_iot_hex', { address, hexData });
+      setError(null);
     } catch (e) {
       console.error('[iot] write_iot_hex failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
 
   const readEcramRaw = useCallback(async (address: string, count: number) => {
     try {
-      return await invoke<string>('read_ecram_raw', { address, count });
+      const result = await invoke<string>('read_ecram_raw', { address, count });
+      setError(null);
+      return result;
     } catch (e) {
       console.error('[iot] read_ecram_raw failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
 
   const isElevated = useCallback(async () => {
     try {
-      return await invoke<boolean>('is_elevated');
+      const result = await invoke<boolean>('is_elevated');
+      setError(null);
+      return result;
     } catch (e) {
       console.error('[iot] is_elevated failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       return false;
     }
   }, []);
@@ -704,8 +776,10 @@ export function useHardware() {
   const relaunchAsAdmin = useCallback(async () => {
     try {
       await invoke('relaunch_as_admin');
+      setError(null);
     } catch (e) {
       console.error('[app] relaunch_as_admin failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -717,8 +791,10 @@ export function useHardware() {
     try {
       const result = await invoke<AudioVolumeResult>('get_audio_volume');
       setAudioState(result);
+      setError(null);
     } catch (e) {
       console.error('getAudioState failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
     }
   }, []);
 
@@ -728,9 +804,11 @@ export function useHardware() {
     setAudioState((prev) => (prev ? { ...prev, volume } : null));
     try {
       await invoke('set_audio_volume', { volume });
+      setError(null);
     } catch (e) {
       setAudioState(snap);
       console.error('[audio] set_audio_volume failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -740,9 +818,11 @@ export function useHardware() {
     setAudioState((prev) => (prev ? { ...prev, muted } : null));
     try {
       await invoke('set_audio_mute', { muted });
+      setError(null);
     } catch (e) {
       setAudioState(snap);
       console.error('[audio] set_audio_mute failed:', e);
+      setError(getUserFriendlyMessage(parseErrorResponse(e)));
       throw e;
     }
   }, []);
@@ -777,6 +857,7 @@ export function useHardware() {
       chargingThreshold: fanState.chargingThreshold,
       loading,
       error,
+      clearError,
       setPerformanceMode,
       setChargingThreshold,
       setBrightness,
@@ -823,6 +904,7 @@ export function useHardware() {
       touchpadState,
       loading,
       error,
+      clearError,
       setPerformanceMode,
       setChargingThreshold,
       setBrightness,

@@ -13,6 +13,7 @@
 //! The main process polls the request-specific result file with a 15-second timeout.
 
 use crate::util::auth;
+use crate::util::panic::lock_or_recover;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -63,7 +64,7 @@ pub fn run() -> ! {
                                 Ok(cmd) => {
                                     // Check nonce anti-replay to prevent replay attacks.
                                     if let Some(ref nonce) = cmd.nonce {
-                                        let mut seen = SEEN_NONCES.lock().unwrap();
+                                        let mut seen = lock_or_recover(&SEEN_NONCES);
                                         if seen.is_none() {
                                             *seen = Some(load_nonces());
                                         }
@@ -79,8 +80,8 @@ pub fn run() -> ! {
                                             make_err(format!("Duplicate nonce: {nonce}"))
                                         } else {
                                             map.insert(nonce.clone(), now);
-                                            // Persist every 10 nonces as a batch
-                                            if map.len().is_multiple_of(10) {
+                                            // Persist every 3 nonces as a batch (S18-08)
+                                            if map.len().is_multiple_of(3) {
                                                 save_nonces(map);
                                             }
                                             dispatch(cmd)
@@ -141,6 +142,15 @@ fn save_nonces(nonces: &HashMap<String, u64>) {
     }
     if let Ok(json) = serde_json::to_string(nonces) {
         let _ = std::fs::write(&path, json);
+    }
+}
+
+/// Immediately persist all seen nonces to disk (S18-08).
+/// Called on shutdown to ensure no nonces are lost between batch writes.
+pub fn flush_nonces() {
+    let seen = lock_or_recover(&SEEN_NONCES);
+    if let Some(map) = seen.as_ref() {
+        save_nonces(map);
     }
 }
 

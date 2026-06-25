@@ -14,7 +14,7 @@ use micontrol_lib::util::auth;
 fn test_hmac_round_trip() {
     let key = b"test-key-32-bytes-long-1234567890";
     let data = b"hello world";
-    let tag = auth::compute_hmac(key, data);
+    let tag = auth::compute_hmac(key, data).expect("HMAC should succeed");
     assert!(auth::verify_hmac(key, data, &tag));
 }
 
@@ -23,7 +23,7 @@ fn test_hmac_rejection_with_wrong_key() {
     let key1 = b"test-key-32-bytes-long-1234567890";
     let key2 = b"different-key-32-bytes-long-123456";
     let data = b"hello world";
-    let tag = auth::compute_hmac(key1, data);
+    let tag = auth::compute_hmac(key1, data).expect("HMAC should succeed");
     assert!(!auth::verify_hmac(key2, data, &tag));
 }
 
@@ -31,7 +31,7 @@ fn test_hmac_rejection_with_wrong_key() {
 fn test_hmac_rejection_with_tampered_data() {
     let key = b"test-key-32-bytes-long-1234567890";
     let data = b"hello world";
-    let tag = auth::compute_hmac(key, data);
+    let tag = auth::compute_hmac(key, data).expect("HMAC should succeed");
     assert!(!auth::verify_hmac(key, b"hello worle", &tag));
 }
 
@@ -46,7 +46,7 @@ fn test_hmac_rejection_with_empty_tag() {
 fn test_hmac_rejection_with_truncated_tag() {
     let key = b"test-key-32-bytes-long-1234567890";
     let data = b"hello world";
-    let tag = auth::compute_hmac(key, data);
+    let tag = auth::compute_hmac(key, data).expect("HMAC should succeed");
     // Truncate the first character
     assert!(!auth::verify_hmac(key, data, &tag[1..]));
 }
@@ -218,14 +218,14 @@ fn test_payload_non_object_rejected() {
 #[test]
 fn test_hmac_with_empty_key() {
     let data = b"some data";
-    let tag = auth::compute_hmac(b"", data);
+    let tag = auth::compute_hmac(b"", data).expect("HMAC should succeed");
     assert!(auth::verify_hmac(b"", data, &tag));
 }
 
 #[test]
 fn test_hmac_with_empty_data() {
     let key = b"test-key-32-bytes-long-1234567890";
-    let tag = auth::compute_hmac(key, b"");
+    let tag = auth::compute_hmac(key, b"").expect("HMAC should succeed");
     assert!(auth::verify_hmac(key, b"", &tag));
 }
 
@@ -233,8 +233,8 @@ fn test_hmac_with_empty_data() {
 fn test_hmac_deterministic() {
     let key = b"test-key-32-bytes-long-1234567890";
     let data = b"deterministic test";
-    let tag1 = auth::compute_hmac(key, data);
-    let tag2 = auth::compute_hmac(key, data);
+    let tag1 = auth::compute_hmac(key, data).expect("HMAC should succeed");
+    let tag2 = auth::compute_hmac(key, data).expect("HMAC should succeed");
     assert_eq!(tag1, tag2, "HMAC should be deterministic");
 }
 

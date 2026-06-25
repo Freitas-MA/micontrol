@@ -14,6 +14,12 @@ const TELEMETRY_CONSENT_KEY: &str = "telemetry_consent";
 /// The current privacy policy version. Bump this when the privacy policy changes.
 pub const POLICY_VERSION: u32 = 2;
 
+/// Maximum size of the audit log file before rotation (1 MB).
+const MAX_LOG_SIZE_BYTES: u64 = 1_048_576;
+
+/// Maximum number of rotated log files to keep (excluding the active `.log`).
+const MAX_LOG_FILES: u32 = 3;
+
 /// Build the path to the audit log file (%LOCALAPPDATA%\MiControl\consent_audit.log).
 fn audit_log_path() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
@@ -33,6 +39,71 @@ fn unix_timestamp() -> u64 {
         .as_secs()
 }
 
+/// Rotate the audit log if it exceeds [`MAX_LOG_SIZE_BYTES`].
+///
+/// Rotates: `.log` → `.log.1`, `.log.1` → `.log.2`, ..., `.log.{MAX_LOG_FILES}` is deleted.
+/// Creates a new empty `.log` file.
+fn rotate_if_needed() {
+    let path = audit_log_path();
+
+    let size = match std::fs::metadata(&path) {
+        Ok(meta) => meta.len(),
+        Err(_) => return, // File doesn't exist yet — nothing to rotate
+    };
+
+    if size <= MAX_LOG_SIZE_BYTES {
+        return;
+    }
+
+    log::info!(
+        "Consent audit log reached {} bytes (limit {}), rotating...",
+        size,
+        MAX_LOG_SIZE_BYTES
+    );
+
+    // Delete the oldest rotated file (.log.{MAX_LOG_FILES})
+    let oldest = path.with_extension(format!("log.{MAX_LOG_FILES}"));
+    if oldest.exists() {
+        if let Err(e) = std::fs::remove_file(&oldest) {
+            log::warn!(
+                "Failed to delete old rotated audit log {}: {e}",
+                oldest.display()
+            );
+        }
+    }
+
+    // Shift files: .log.{n} → .log.{n+1}, from highest to lowest
+    for n in (1..MAX_LOG_FILES).rev() {
+        let src = path.with_extension(format!("log.{n}"));
+        let dst = path.with_extension(format!("log.{}", n + 1));
+        if src.exists() {
+            if let Err(e) = std::fs::rename(&src, &dst) {
+                log::warn!(
+                    "Failed to rotate audit log {} → {}: {e}",
+                    src.display(),
+                    dst.display()
+                );
+            }
+        }
+    }
+
+    // Move the current .log → .log.1
+    let rotated = path.with_extension("log.1");
+    if let Err(e) = std::fs::rename(&path, &rotated) {
+        log::warn!(
+            "Failed to rotate audit log {} → {}: {e}",
+            path.display(),
+            rotated.display()
+        );
+        return; // Don't truncate if rename failed
+    }
+
+    // Create a new empty .log file
+    if let Err(e) = std::fs::File::create(&path) {
+        log::error!("Failed to create new audit log after rotation: {e}");
+    }
+}
+
 /// Log a consent event to the audit log.
 pub fn log_consent_event(event: &str, policy_version: u32) {
     let path = audit_log_path();
@@ -42,12 +113,18 @@ pub fn log_consent_event(event: &str, policy_version: u32) {
         let _ = std::fs::create_dir_all(parent);
     }
 
+    // Rotate the log if it has grown too large
+    rotate_if_needed();
+
     let ts = unix_timestamp();
     let entry = format!("{ts}\t{event}\tpolicy_version={policy_version}");
 
     // Compute HMAC for integrity protection
     let hmac_tag = match crate::util::auth::get_or_create_key() {
-        Ok(key) => crate::util::auth::compute_hmac(&key, entry.as_bytes()),
+        Ok(key) => crate::util::auth::compute_hmac(&key, entry.as_bytes()).unwrap_or_else(|e| {
+            log::error!("Failed to compute HMAC for audit log: {e}");
+            String::new()
+        }),
         Err(e) => {
             log::error!("Failed to get HMAC key for audit log: {e}");
             // Write without HMAC if key is unavailable — better to log than to lose the entry
@@ -226,6 +303,142 @@ mod tests {
         assert!(result.is_err(), "Tampered log should fail verification");
 
         // Cleanup
+        let _ = std::fs::remove_dir_all(&tmp);
+        if let Some(orig_val) = orig {
+            std::env::set_var("LOCALAPPDATA", orig_val);
+        }
+    }
+
+    #[test]
+    fn test_rotate_if_needed_no_file() {
+        let _lock = LOCALAPPDATA_LOCK.lock().unwrap();
+
+        let orig = std::env::var("LOCALAPPDATA").ok();
+        let tmp = std::env::temp_dir().join("micontrol_test_audit_rotate_none");
+        std::env::set_var("LOCALAPPDATA", &tmp);
+
+        // No log file exists — rotation should be a no-op
+        rotate_if_needed();
+
+        let log_path = tmp.join("MiControl").join("consent_audit.log");
+        assert!(
+            !log_path.exists(),
+            "No log file should be created by rotation"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        if let Some(orig_val) = orig {
+            std::env::set_var("LOCALAPPDATA", orig_val);
+        }
+    }
+
+    #[test]
+    fn test_rotate_if_needed_small_file() {
+        let _lock = LOCALAPPDATA_LOCK.lock().unwrap();
+
+        let orig = std::env::var("LOCALAPPDATA").ok();
+        let tmp = std::env::temp_dir().join("micontrol_test_audit_rotate_small");
+        std::env::set_var("LOCALAPPDATA", &tmp);
+
+        // Create a small log file
+        let log_path = tmp.join("MiControl").join("consent_audit.log");
+        std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+        std::fs::write(&log_path, "small content").unwrap();
+
+        // Rotation should not happen
+        rotate_if_needed();
+
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert_eq!(content, "small content", "Small file should not be rotated");
+        assert!(
+            !log_path.with_extension("log.1").exists(),
+            "No rotated file should exist"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        if let Some(orig_val) = orig {
+            std::env::set_var("LOCALAPPDATA", orig_val);
+        }
+    }
+
+    #[test]
+    fn test_rotate_if_needed_large_file() {
+        let _lock = LOCALAPPDATA_LOCK.lock().unwrap();
+
+        let orig = std::env::var("LOCALAPPDATA").ok();
+        let tmp = std::env::temp_dir().join("micontrol_test_audit_rotate_large");
+        std::env::set_var("LOCALAPPDATA", &tmp);
+
+        // Create a log file exceeding MAX_LOG_SIZE_BYTES
+        let log_path = tmp.join("MiControl").join("consent_audit.log");
+        std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+        let large_content = "x".repeat((MAX_LOG_SIZE_BYTES + 1) as usize);
+        std::fs::write(&log_path, &large_content).unwrap();
+
+        // Rotation should happen
+        rotate_if_needed();
+
+        // The original file should now be empty (new file created)
+        let new_content = std::fs::read_to_string(&log_path).unwrap();
+        assert_eq!(
+            new_content, "",
+            "New log file should be empty after rotation"
+        );
+
+        // The rotated file (.log.1) should contain the old content
+        let rotated_path = log_path.with_extension("log.1");
+        let rotated_content = std::fs::read_to_string(&rotated_path).unwrap();
+        assert_eq!(
+            rotated_content, large_content,
+            "Rotated file should contain old content"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        if let Some(orig_val) = orig {
+            std::env::set_var("LOCALAPPDATA", orig_val);
+        }
+    }
+
+    #[test]
+    fn test_rotate_if_needed_multiple_rotations() {
+        let _lock = LOCALAPPDATA_LOCK.lock().unwrap();
+
+        let orig = std::env::var("LOCALAPPDATA").ok();
+        let tmp = std::env::temp_dir().join("micontrol_test_audit_rotate_multi");
+        std::env::set_var("LOCALAPPDATA", &tmp);
+
+        let log_path = tmp.join("MiControl").join("consent_audit.log");
+        std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+
+        // Pre-create rotated files to verify shifting
+        std::fs::write(&log_path, "current").unwrap();
+        std::fs::write(log_path.with_extension("log.1"), "rotation1").unwrap();
+        std::fs::write(log_path.with_extension("log.2"), "rotation2").unwrap();
+
+        // Make the current file large enough to trigger rotation
+        let large_content = "x".repeat((MAX_LOG_SIZE_BYTES + 1) as usize);
+        std::fs::write(&log_path, &large_content).unwrap();
+
+        rotate_if_needed();
+
+        // .log should be empty (new file)
+        assert_eq!(std::fs::read_to_string(&log_path).unwrap(), "");
+        // .log.1 should have the old current content
+        assert_eq!(
+            std::fs::read_to_string(log_path.with_extension("log.1")).unwrap(),
+            large_content
+        );
+        // .log.2 should have the old .log.1 content
+        assert_eq!(
+            std::fs::read_to_string(log_path.with_extension("log.2")).unwrap(),
+            "rotation1"
+        );
+        // .log.3 should have the old .log.2 content
+        assert_eq!(
+            std::fs::read_to_string(log_path.with_extension("log.3")).unwrap(),
+            "rotation2"
+        );
+
         let _ = std::fs::remove_dir_all(&tmp);
         if let Some(orig_val) = orig {
             std::env::set_var("LOCALAPPDATA", orig_val);

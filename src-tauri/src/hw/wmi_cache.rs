@@ -71,10 +71,23 @@ where
         WMI_CACHE.with(|cell| {
             let mut cache_ref = cell.borrow_mut();
             if cache_ref.is_none() {
-                *cache_ref = Some(WmiThreadCache::init()?);
+                match WmiThreadCache::init() {
+                    Ok(cache) => *cache_ref = Some(cache),
+                    Err(e) => {
+                        log::warn!("WMI cache: cimv2 cache initialization failed: {e}");
+                        return Err(e);
+                    }
+                }
             }
-            let c = cache_ref.as_ref().unwrap();
-            f(&c.cimv2)
+            match cache_ref.as_ref() {
+                Some(c) => f(&c.cimv2),
+                None => {
+                    log::error!("WMI cache: cimv2 cache unavailable after init");
+                    Err(anyhow::anyhow!(HardwareError::WmiConnection(
+                        "cimv2 cache unavailable after initialization".to_string(),
+                    )))
+                }
+            }
         })
     });
     match &result {
@@ -103,10 +116,23 @@ where
         WMI_CACHE.with(|cell| {
             let mut cache_ref = cell.borrow_mut();
             if cache_ref.is_none() {
-                *cache_ref = Some(WmiThreadCache::init()?);
+                match WmiThreadCache::init() {
+                    Ok(cache) => *cache_ref = Some(cache),
+                    Err(e) => {
+                        log::warn!("WMI cache: wmi cache initialization failed: {e}");
+                        return Err(e);
+                    }
+                }
             }
-            let c = cache_ref.as_ref().unwrap();
-            f(&c.wmi)
+            match cache_ref.as_ref() {
+                Some(c) => f(&c.wmi),
+                None => {
+                    log::error!("WMI cache: wmi cache unavailable after init");
+                    Err(anyhow::anyhow!(HardwareError::WmiConnection(
+                        "wmi cache unavailable after initialization".to_string(),
+                    )))
+                }
+            }
         })
     });
     match &result {
@@ -124,15 +150,38 @@ where
     result.map_err(HardwareError::from)
 }
 
-/// Returns `true` if the error message indicates a connection-level failure
+/// Returns `true` if the error indicates a connection-level failure
 /// (COM init, namespace binding, or WMI infrastructure) vs. a transient
 /// query error (class not found, invalid query syntax).
+///
+/// Uses structured error type checking via downcasting instead of fragile
+/// substring matching on error messages.
 fn is_connection_error(e: &anyhow::Error) -> bool {
-    let msg = e.to_string().to_lowercase();
-    msg.contains("com")
-        || msg.contains("connection")
-        || msg.contains("binding")
-        || msg.contains("namespace")
+    // First, try downcasting to our structured HardwareError
+    if let Some(hw_err) = e.downcast_ref::<HardwareError>() {
+        return matches!(hw_err, HardwareError::WmiConnection(_));
+    }
+
+    // Then, try downcasting to common WMI/COM error types
+    if e.downcast_ref::<wmi::WMIError>().is_some() {
+        return true;
+    }
+
+    // Fallback: check the error chain for connection-related causes using
+    // structured iteration rather than blind substring matching
+    let mut source: Option<&dyn std::error::Error> = Some(e.as_ref());
+    while let Some(err) = source {
+        let type_name = std::any::type_name_of_val(err);
+        if type_name.contains("WMIError")
+            || type_name.contains("COMError")
+            || type_name.contains("HResult")
+        {
+            return true;
+        }
+        source = err.source();
+    }
+
+    false
 }
 
 #[expect(dead_code)]
@@ -145,4 +194,56 @@ pub fn invalidate() {
     WMI_CACHE.with(|cell| {
         *cell.borrow_mut() = None;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_connection_error_hardware_error_wmi_connection() {
+        let err: anyhow::Error =
+            anyhow::Error::from(HardwareError::WmiConnection("COM init failed".to_string()));
+        assert!(is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_is_connection_error_hardware_error_wmi_query_is_not_connection() {
+        // WmiQuery is a transient query error, NOT a connection error
+        let err: anyhow::Error = anyhow::Error::from(HardwareError::WmiQuery {
+            query: "SELECT * FROM Win32_Processor".to_string(),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "query failed",
+            )),
+        });
+        assert!(!is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_is_connection_error_wmi_error_type() {
+        // A wmi::WMIError should be detected as a connection error
+        let wmi_err = wmi::WMIError::HResultError {
+            hres: 0x80040154u32 as i32, // REGDB_E_CLASSNOTREG
+        };
+        let err: anyhow::Error = anyhow::Error::from(wmi_err);
+        assert!(is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_is_connection_error_generic_string_is_not_connection() {
+        // A generic string error should NOT be detected as a connection error
+        let err: anyhow::Error = anyhow::Error::msg("some random transient error");
+        assert!(!is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_is_connection_error_io_error_is_not_connection() {
+        // A plain IO error should NOT be detected as a connection error
+        let err: anyhow::Error = anyhow::Error::from(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file not found",
+        ));
+        assert!(!is_connection_error(&err));
+    }
 }

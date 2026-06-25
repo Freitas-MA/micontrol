@@ -331,7 +331,11 @@ fn save_profile(profile: &HardwareProfile, data_dir: Option<&Path>) {
         if let Ok(json) = serde_json::to_string_pretty(profile) {
             // Sign the profile JSON with HMAC for integrity verification
             if let Ok(key) = crate::util::auth::get_or_create_key() {
-                let hmac = crate::util::auth::compute_hmac(&key, json.as_bytes());
+                let hmac =
+                    crate::util::auth::compute_hmac(&key, json.as_bytes()).unwrap_or_else(|e| {
+                        log::error!("Failed to compute HMAC for hardware profile: {e}");
+                        String::new()
+                    });
                 let hmac_path = path.with_extension("json.hmac");
                 let _ = std::fs::write(&hmac_path, hmac);
             }
@@ -1009,7 +1013,8 @@ mod tests {
         // Verify that HMAC verification detects tampering
         let data = b"test profile data";
         let key = vec![0u8; 32]; // test key
-        let hmac = crate::util::auth::compute_hmac(&key, data);
+        let hmac =
+            crate::util::auth::compute_hmac(&key, data).expect("HMAC computation should succeed");
         assert!(crate::util::auth::verify_hmac(&key, data, &hmac));
         assert!(!crate::util::auth::verify_hmac(
             &key,

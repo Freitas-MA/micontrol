@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+use crate::util::panic::lock_or_recover;
+
 /// AI usage statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AiUsageStats {
@@ -20,7 +22,7 @@ static USAGE: Mutex<Option<AiUsageStats>> = Mutex::new(None);
 
 /// Record an AI request's token usage.
 pub fn record_usage(input_tokens: u64, output_tokens: u64) {
-    let mut usage = USAGE.lock().unwrap();
+    let mut usage = lock_or_recover(&USAGE);
     let stats = usage.get_or_insert_with(AiUsageStats::default);
     stats.total_requests += 1;
     stats.total_input_tokens += input_tokens;
@@ -31,10 +33,10 @@ pub fn record_usage(input_tokens: u64, output_tokens: u64) {
 
 /// Get current usage statistics.
 pub fn get_usage() -> AiUsageStats {
-    USAGE.lock().unwrap().clone().unwrap_or_default()
+    lock_or_recover(&USAGE).clone().unwrap_or_default()
 }
 
 /// Reset usage statistics.
 pub fn reset_usage() {
-    *USAGE.lock().unwrap() = Some(AiUsageStats::default());
+    *lock_or_recover(&USAGE) = Some(AiUsageStats::default());
 }

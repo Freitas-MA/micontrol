@@ -117,19 +117,31 @@ pub fn read_key() -> Result<Vec<u8>, String> {
 }
 
 /// Compute the HMAC-SHA256 tag for the given data, returned as a hex string.
-pub fn compute_hmac(key: &[u8], data: &[u8]) -> String {
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+///
+/// Returns `Err` if the HMAC key derivation fails (e.g. invalid key length).
+pub fn compute_hmac(key: &[u8], data: &[u8]) -> Result<String, String> {
+    let mut mac =
+        HmacSha256::new_from_slice(key).map_err(|e| format!("HMAC key derivation failed: {e}"))?;
     mac.update(data);
-    mac.finalize()
+    Ok(mac
+        .finalize()
         .into_bytes()
         .iter()
         .map(|b| format!("{:02x}", b))
-        .collect()
+        .collect())
 }
 
 /// Verify that the expected HMAC matches the data.
+///
+/// Returns `false` (fail-closed) if HMAC computation fails.
 pub fn verify_hmac(key: &[u8], data: &[u8], expected_hex: &str) -> bool {
-    let actual = compute_hmac(key, data);
+    let actual = match compute_hmac(key, data) {
+        Ok(h) => h,
+        Err(e) => {
+            log::error!("HMAC computation failed during verification: {e}");
+            return false; // Fail-closed
+        }
+    };
     // Constant-time comparison
     if actual.len() != expected_hex.len() {
         return false;
@@ -169,11 +181,19 @@ pub fn now_ms() -> u64 {
 ///
 /// The HMAC is computed over the serialized JSON of the payload **without**
 /// the `hmac` field.  The payload is modified in place to include the `hmac`.
+/// If HMAC computation fails, the `hmac` field is left unset and the error is
+/// logged — `verify_payload` will reject the unsigned payload.
 pub fn sign_payload(payload: &mut serde_json::Value, key: &[u8]) {
     // Serialize without hmac to get the canonical body
     let body = payload.to_string();
-    let hmac = compute_hmac(key, body.as_bytes());
-    payload["hmac"] = serde_json::json!(hmac);
+    match compute_hmac(key, body.as_bytes()) {
+        Ok(hmac) => {
+            payload["hmac"] = serde_json::json!(hmac);
+        }
+        Err(e) => {
+            log::error!("Failed to sign payload: {e}");
+        }
+    }
 }
 
 /// Verify a signed JSON payload.
@@ -409,7 +429,7 @@ mod tests {
     fn test_hmac_roundtrip() {
         let key = b"test-key-32-bytes-long-1234567890";
         let data = b"hello world";
-        let tag = compute_hmac(key, data);
+        let tag = compute_hmac(key, data).expect("HMAC computation should succeed");
         assert!(verify_hmac(key, data, &tag));
     }
 
@@ -418,7 +438,7 @@ mod tests {
         let key1 = b"test-key-32-bytes-long-1234567890";
         let key2 = b"different-key-32-bytes-long-123456";
         let data = b"hello world";
-        let tag = compute_hmac(key1, data);
+        let tag = compute_hmac(key1, data).expect("HMAC computation should succeed");
         assert!(!verify_hmac(key2, data, &tag));
     }
 
@@ -426,7 +446,7 @@ mod tests {
     fn test_hmac_tampered_data_fails() {
         let key = b"test-key-32-bytes-long-1234567890";
         let data = b"hello world";
-        let tag = compute_hmac(key, data);
+        let tag = compute_hmac(key, data).expect("HMAC computation should succeed");
         assert!(!verify_hmac(key, b"hello worle", &tag));
     }
 
