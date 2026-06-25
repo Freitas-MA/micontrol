@@ -263,6 +263,7 @@ export function useSettings() {
     await invoke<string>('test_connection', {
       baseUrl: settings.openai_base_url,
       model: settings.openai_model || 'gpt-4o-mini',
+      aiDailyAnalyses: settings.ai_daily_analyses,
     });
   }
 

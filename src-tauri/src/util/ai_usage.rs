@@ -65,6 +65,11 @@ impl AiUsageStats {
             Ok(json) => {
                 if let Err(e) = std::fs::write(&path, json) {
                     log::warn!("Failed to write AI usage file: {e}");
+                } else {
+                    // S26-002: Restrict ACL on ai_usage.json — contains usage/cost data.
+                    if let Err(e) = crate::util::auth::restrict_file_acl(&path) {
+                        log::warn!("Failed to restrict ACL on ai_usage.json: {e}");
+                    }
                 }
             }
             Err(e) => log::warn!("Failed to serialize AI usage stats: {e}"),

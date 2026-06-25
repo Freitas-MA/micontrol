@@ -67,15 +67,16 @@ jobs:
       - name: Verify signing key is provided
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: pwsh
         run: |
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is required for releases."
-            echo "::error::See docs/release.md for setup instructions."
-            echo "::error::Generate a keypair with: npx @tauri-apps/cli signer generate -w ~/.tauri/micontrol-key"
-            echo "::error::Then add the private key as a repository secret named TAURI_SIGNING_PRIVATE_KEY"
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            Write-Host "::error::TAURI_SIGNING_PRIVATE_KEY secret is required for releases."
+            Write-Host "::error::See docs/release.md for setup instructions."
+            Write-Host "::error::Generate a keypair with: npx @tauri-apps/cli signer generate -w ~/.tauri/micontrol-key"
+            Write-Host "::error::Then add the private key as a repository secret named TAURI_SIGNING_PRIVATE_KEY"
             exit 1
-          fi
-          echo "Signing key is present."
+          }
+          Write-Host "Signing key is present."
 
       - name: Build Tauri app
         run: npm run tauri build

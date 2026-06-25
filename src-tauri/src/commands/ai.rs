@@ -193,7 +193,11 @@ pub async fn analyze_system(
 
 /// Quick connectivity + auth test — sends a minimal prompt.
 #[tauri::command]
-pub async fn test_connection(base_url: String, model: String) -> Result<String, String> {
+pub async fn test_connection(
+    base_url: String,
+    model: String,
+    ai_daily_analyses: u64,
+) -> Result<String, String> {
     // S23-005: Check telemetry consent before sending API key to external server.
     let consent = get_telemetry_consent().map_err(|e| e.to_string())?;
     if consent != "granted" {
@@ -202,6 +206,9 @@ pub async fn test_connection(base_url: String, model: String) -> Result<String, 
 
     // S24-015: Validate base URL before sending any data.
     validate_base_url(&base_url)?;
+
+    // S26-001: Rate limit test_connection to prevent API cost abuse.
+    crate::util::ai_usage::check_daily_limit(ai_daily_analyses)?;
 
     let entry =
         Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| format!("Keyring error: {e}"))?;

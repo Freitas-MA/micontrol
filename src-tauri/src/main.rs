@@ -6,10 +6,27 @@
 #![windows_subsystem = "windows"]
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
     // If launched as the privileged helper by the scheduled task, execute the
     // requested hardware command and exit — no Tauri window is opened.
-    if std::env::args().any(|a| a == "--elevated") {
+    if args.iter().any(|a| a == "--elevated") {
         micontrol_lib::elevated::run(); // -> !
     }
+
+    // S26-004: Manual key rotation CLI handler.
+    if args.iter().any(|a| a == "--rotate-key") {
+        match micontrol_lib::util::auth::rotate_key() {
+            Ok(()) => {
+                println!("HMAC key rotated successfully.");
+                return;
+            }
+            Err(e) => {
+                eprintln!("Failed to rotate HMAC key: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     micontrol_lib::run();
 }

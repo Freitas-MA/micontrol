@@ -134,6 +134,9 @@ pub fn log_consent_event(event: &str, policy_version: u32) {
 
     let signed_entry = format!("{entry}\thmac={hmac_tag}\n");
 
+    // S26-003: Restrict ACL on consent_audit.log when first created.
+    let needs_acl = !path.exists();
+
     // Append to the audit log
     match std::fs::OpenOptions::new()
         .create(true)
@@ -143,6 +146,12 @@ pub fn log_consent_event(event: &str, policy_version: u32) {
         Ok(mut file) => {
             if let Err(e) = file.write_all(signed_entry.as_bytes()) {
                 log::error!("Failed to write consent audit log: {e}");
+            }
+            // S26-003: Restrict ACL if the file was just created.
+            if needs_acl {
+                if let Err(e) = crate::util::auth::restrict_file_acl(&path) {
+                    log::warn!("Failed to restrict ACL on consent audit log: {e}");
+                }
             }
         }
         Err(e) => {

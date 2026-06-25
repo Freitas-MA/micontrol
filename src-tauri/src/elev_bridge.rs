@@ -62,7 +62,11 @@ pub async fn run_elevated(cmd: &'static str, args: Value) -> Result<Value, Strin
     }
 
     let dir = crate::elevated::elev_dir();
-    cleanup_stale_elev_files(&dir);
+    // S26-006: Wrap in spawn_blocking — cleanup_stale_elev_files() uses std::fs::read_dir.
+    let dir_clone = dir.clone();
+    tokio::task::spawn_blocking(move || cleanup_stale_elev_files(&dir_clone))
+        .await
+        .map_err(|e| format!("cleanup_stale_elev_files task panicked: {e}"))?;
 
     let request_id = make_request_id();
     let cmd_path = dir.join(cmd_file_name(&request_id));
@@ -200,7 +204,14 @@ pub async fn run_elevated(cmd: &'static str, args: Value) -> Result<Value, Strin
                 // Re-write the command file in case the bad task process
                 // consumed or deleted it.
                 let _ = tokio::fs::write(&cmd_path, payload.to_string()).await;
-                if let Err(e) = launch_elevated_via_uac(&request_id) {
+                // S26-005: Wrap in spawn_blocking — launch_elevated_via_uac() blocks
+                // for up to 30 s via WaitForSingleObject.
+                let req_id_owned = request_id.clone();
+                let uac_result =
+                    tokio::task::spawn_blocking(move || launch_elevated_via_uac(&req_id_owned))
+                        .await
+                        .map_err(|e| format!("UAC timeout fallback task panicked: {e}"))?;
+                if let Err(e) = uac_result {
                     let _ = tokio::fs::remove_file(&cmd_path).await;
                     return Err(format!(
                         "Elevated process timed out after 15 s and UAC fallback \

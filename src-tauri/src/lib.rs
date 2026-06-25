@@ -334,9 +334,12 @@ pub fn run() {
             // S24-016: Load persisted AI usage stats on startup.
             crate::util::ai_usage::load_on_startup();
 
-            // S24-002: Check if HMAC key needs rotation.
+            // S26-004: Auto-rotate HMAC key if needed (replaces misleading --rotate-key message).
             if crate::util::auth::key_needs_rotation() {
-                log::warn!("HMAC key rotation needed — run with --rotate-key to rotate");
+                log::info!("HMAC key is older than 30 days — auto-rotating...");
+                if let Err(e) = crate::util::auth::rotate_key() {
+                    log::warn!("HMAC key auto-rotation failed: {e}");
+                }
             }
 
             // Sync the discovered profile into Tauri managed state

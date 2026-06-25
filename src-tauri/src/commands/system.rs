@@ -72,7 +72,10 @@ pub async fn set_brightness(level: u8) -> Result<(), ErrorResponse> {
     // If auto-brightness is active, record the delta so the adaptive loop
     // uses the user's chosen value as the new shifted baseline rather than
     // reverting to the pure lux-based calculation.
-    let cfg = hw_get_ai_cfg();
+    // S26-007: Wrap in run_blocking — hw_get_ai_cfg() does sync registry I/O.
+    let cfg = run_blocking(move || Ok(hw_get_ai_cfg()))
+        .await
+        .map_err(ErrorResponse::from)?;
     if cfg.enabled {
         crate::hw::display::record_user_brightness_override(level);
     }
