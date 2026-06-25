@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { t } from '../hooks/useI18n';
-import type { AppSettings } from '../hooks/useSettings';
+import type { StringKey } from '../hooks/useI18n';
+import type { AppSettings } from '../types/settings';
 import { DEFAULT_SETTINGS } from '../hooks/useSettings';
 
 interface AiConfigFormProps {
@@ -9,11 +10,11 @@ interface AiConfigFormProps {
   onTestConnection: () => Promise<void>;
 }
 
-const PRESET_MODELS = [
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (fast, cheap)' },
-  { value: 'gpt-4o', label: 'GPT-4o (best quality)' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'custom', label: 'Custom (type below)' },
+const PRESET_MODELS: { value: string; labelKey: StringKey }[] = [
+  { value: 'gpt-4o-mini', labelKey: 'settings.presetGpt4oMini' },
+  { value: 'gpt-4o', labelKey: 'settings.presetGpt4o' },
+  { value: 'gpt-4-turbo', labelKey: 'settings.presetGpt4Turbo' },
+  { value: 'custom', labelKey: 'settings.presetCustom' },
 ];
 
 function FieldRow({
@@ -181,7 +182,7 @@ export default function AiConfigForm({ settings, onUpdate, onTestConnection }: A
               onClick={() => handlePresetChange(m.value)}
               className={`chip-btn ${selectedPreset === m.value ? 'active' : ''}`}
             >
-              {m.label}
+              {t(m.labelKey)}
             </button>
           ))}
         </div>
@@ -241,6 +242,19 @@ export default function AiConfigForm({ settings, onUpdate, onTestConnection }: A
         style={{ color: 'var(--color-text-muted)', marginTop: 16, marginBottom: 0 }}
       >
         🔒 {t('settings.storageNote')}
+      </p>
+
+      {/* Documentation link */}
+      <p className="text-xs" style={{ marginTop: 8, marginBottom: 0 }}>
+        📖{' '}
+        <a
+          href="https://github.com/Freitas-MA/miPC/blob/master/micontrol/docs/ai-features.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: 'var(--accent)', textDecoration: 'underline' }}
+        >
+          {t('settings.aiDocsLink')}
+        </a>
       </p>
     </div>
   );

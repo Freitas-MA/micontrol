@@ -13,17 +13,19 @@ pub mod util;
 
 use commands::ai::{analyze_system, get_ai_usage, reset_ai_usage, test_connection};
 use commands::ai_logs::{open_ai_logs_dir, read_ai_perf_logs, write_ai_perf_log};
+#[allow(deprecated)]
 use commands::hardware::{
     get_audio_devices, get_audio_volume, get_cast_devices, get_charging_threshold, get_ecram_map,
     get_iot_bind_status, get_iot_device_id, get_iot_device_info, get_iot_device_status,
     get_iot_fw_version, get_iot_model, get_iot_region_hex, get_iot_wifi_by_index,
-    get_iot_wifi_count, get_iot_wifi_status, get_perf_debug, get_performance_mode,
-    iot_connect_wifi, iot_delete_wifi_item, iot_empty_wifi_items, iot_notify_ec_event,
-    iot_notify_power_event, iot_pipe_available, iot_report_shutting_down, iot_report_suspending,
-    iot_report_windows_ready, iot_reset_device, iot_set_device_status, iot_write_wifi_item,
-    is_elevated, read_ecram_raw, relaunch_as_admin, send_iot_laptop_status, set_audio_mute,
-    set_audio_volume, set_charging_threshold, set_performance_mode, start_casting, stop_casting,
-    wifi_connect, wifi_disconnect, wifi_scan, wifi_status, write_iot_hex,
+    get_iot_wifi_count, get_iot_wifi_list, get_iot_wifi_status, get_perf_debug,
+    get_performance_mode, iot_connect_wifi, iot_delete_wifi_item, iot_empty_wifi_items,
+    iot_notify_ec_event, iot_notify_event, iot_notify_power_event, iot_pipe_available,
+    iot_report_shutting_down, iot_report_suspending, iot_report_windows_ready, iot_reset_device,
+    iot_set_device_status, iot_write_wifi_item, is_elevated, read_ecram_raw, relaunch_as_admin,
+    send_iot_laptop_status, set_audio_mute, set_audio_volume, set_charging_threshold,
+    set_performance_mode, start_casting, stop_casting, wifi_connect, wifi_disconnect, wifi_scan,
+    wifi_status, write_iot_hex,
 };
 use commands::hotkeys::{
     get_detected_key, get_hotkey_config, is_hook_active, set_hotkey_config, start_key_detect,
@@ -97,6 +99,7 @@ fn rotate_logs(app: tauri::AppHandle) -> Result<u32, String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[allow(deprecated)]
 pub fn run() {
     util::panic::install_panic_hook();
     if let Err(e) = crate::debug_log::init_logging() {
@@ -221,6 +224,9 @@ pub fn run() {
             // IoTService IPC
             iot_pipe_available,
             get_iot_device_info,
+            get_iot_wifi_list,
+            iot_notify_event,
+            // Deprecated wrappers (kept for backward compatibility)
             get_iot_model,
             get_iot_fw_version,
             get_iot_bind_status,

@@ -30,6 +30,7 @@
 /// Reading requires satisfying the IoTDriver security check (process name = IoTService.exe).
 use crate::hw::errors::{HardwareError, HardwareResult};
 use anyhow::Context;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Fallback physical base address of the ACPI ERAM region (SystemMemory at 0xFE0B0300, size 0x100).
@@ -547,6 +548,10 @@ fn write_ecram_inner(device_path: &str, phys_addr: u64, data: &[u8]) -> anyhow::
 // only known-safe single-byte offsets within the ACPI ERAM region are accepted
 // without the explicit raw-write override flag.
 //
+// The offsets are loaded from `scripts/ecram-safe-writes.json` at first use
+// and cached in a `OnceLock`.  If the config file is missing or unreadable,
+// the hardcoded defaults below are used instead.
+//
 // These offsets correspond to harmless configuration bytes discovered via DSDT
 // and SvrCModule.dll analysis:
 //   0x1B — MISC flags (AILM, LBLM)
@@ -554,7 +559,98 @@ fn write_ecram_inner(device_path: &str, phys_addr: u64, data: &[u8]) -> anyhow::
 //   0x4A, 0x4B — Smart Mode Type/Data
 //   0x68 — QFAN mode
 //   0x96, 0xAE, 0xB2 — other config bytes
-const SAFE_WRITE_ERAM_OFFSETS: [usize; 9] = [0x1B, 0x40, 0x42, 0x4A, 0x4B, 0x68, 0x96, 0xAE, 0xB2];
+const DEFAULT_SAFE_WRITE_OFFSETS: [u8; 9] = [0x1B, 0x40, 0x42, 0x4A, 0x4B, 0x68, 0x96, 0xAE, 0xB2];
+
+/// Cached safe-write offsets loaded from `scripts/ecram-safe-writes.json`.
+/// Falls back to `DEFAULT_SAFE_WRITE_OFFSETS` if the file is missing or invalid.
+static SAFE_WRITE_OFFSETS: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// Return the ERAM offsets that are safe for single-byte writes without the
+/// raw-write override env var.
+///
+/// The offsets are loaded once from `scripts/ecram-safe-writes.json` (searched
+/// relative to the executable and current working directory).  If the file is
+/// missing, unreadable, or contains invalid data, the hardcoded defaults are
+/// used instead.
+pub fn get_safe_write_offsets() -> &'static [u8] {
+    SAFE_WRITE_OFFSETS.get_or_init(|| match load_safe_write_offsets_from_config() {
+        Some(offsets) if !offsets.is_empty() => {
+            log::info!(
+                target: "hw::ecram",
+                "Loaded {} safe-write offsets from ecram-safe-writes.json",
+                offsets.len(),
+            );
+            offsets
+        }
+        _ => {
+            log::info!(
+                target: "hw::ecram",
+                "Using hardcoded default safe-write offsets \
+                 (ecram-safe-writes.json not found or invalid)",
+            );
+            DEFAULT_SAFE_WRITE_OFFSETS.to_vec()
+        }
+    })
+}
+
+/// Try to load safe-write offsets from `scripts/ecram-safe-writes.json`.
+fn load_safe_write_offsets_from_config() -> Option<Vec<u8>> {
+    for path in config_file_candidates() {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            log::debug!(
+                target: "hw::ecram",
+                "Reading safe-write config from {}",
+                path.display(),
+            );
+            return parse_safe_writes_json(&text);
+        }
+    }
+    None
+}
+
+/// Build a list of candidate paths for `ecram-safe-writes.json`.
+fn config_file_candidates() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let filename = "ecram-safe-writes.json";
+
+    // 1. Relative to the current working directory.
+    paths.push(PathBuf::from("scripts").join(filename));
+
+    // 2. Walk up from the executable directory looking for scripts/<filename>.
+    //    This covers dev builds (exe in src-tauri/target/<profile>/) and
+    //    installed builds where scripts/ may sit next to the executable.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let mut current = dir.to_path_buf();
+            for _ in 0..5 {
+                paths.push(current.join("scripts").join(filename));
+                if !current.pop() {
+                    break;
+                }
+            }
+        }
+    }
+
+    paths
+}
+
+/// Parse the JSON config and extract offsets as bytes.
+///
+/// Expected format: `{ "offsets": ["0x1B", "0x40", ...] }`
+fn parse_safe_writes_json(text: &str) -> Option<Vec<u8>> {
+    let val: serde_json::Value = serde_json::from_str(text).ok()?;
+    let arr = val.get("offsets")?.as_array()?;
+    let mut result = Vec::with_capacity(arr.len());
+    for item in arr {
+        let s = item.as_str()?.trim();
+        let hex = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
+        result.push(u8::from_str_radix(hex, 16).ok()?);
+    }
+    Some(result)
+}
 
 /// Environment variable that must be set to `1` to allow writes outside the
 /// safe single-byte allowlist.  This mirrors the check in `commands/hardware.rs`
@@ -575,7 +671,7 @@ fn validate_write(phys_addr: u64, data: &[u8]) -> HardwareResult<()> {
     let is_safe_single_byte =
         data.len() == 1 && phys_addr >= eram_base && phys_addr < eram_base + ERAM_SIZE as u64 && {
             let offset = (phys_addr - eram_base) as usize;
-            SAFE_WRITE_ERAM_OFFSETS.contains(&offset)
+            get_safe_write_offsets().contains(&(offset as u8))
         };
     if is_safe_single_byte {
         return Ok(());
@@ -898,5 +994,62 @@ mod tests {
         assert!(check_bytes_returned(0, 1).is_err());
         // Zero bytes expected, zero returned (edge case — should pass)
         assert!(check_bytes_returned(0, 0).is_ok());
+    }
+
+    #[test]
+    fn parse_safe_writes_json_valid() {
+        let json = r#"{
+            "description": "test",
+            "offsets": ["0x1B", "0x40", "0x42", "0x4A", "0x4B", "0x68", "0x96", "0xAE", "0xB2"]
+        }"#;
+        let offsets = parse_safe_writes_json(json).expect("valid JSON should parse");
+        assert_eq!(offsets, DEFAULT_SAFE_WRITE_OFFSETS);
+    }
+
+    #[test]
+    fn parse_safe_writes_json_uppercase_prefix() {
+        let json = r#"{ "offsets": ["0X1B", "0X40"] }"#;
+        let offsets = parse_safe_writes_json(json).expect("0X prefix should parse");
+        assert_eq!(offsets, vec![0x1B, 0x40]);
+    }
+
+    #[test]
+    fn parse_safe_writes_json_no_prefix() {
+        let json = r#"{ "offsets": ["1B", "40"] }"#;
+        let offsets = parse_safe_writes_json(json).expect("no prefix should parse");
+        assert_eq!(offsets, vec![0x1B, 0x40]);
+    }
+
+    #[test]
+    fn parse_safe_writes_json_empty_array() {
+        let json = r#"{ "offsets": [] }"#;
+        let offsets = parse_safe_writes_json(json);
+        assert!(offsets.map_or(false, |v| v.is_empty()));
+    }
+
+    #[test]
+    fn parse_safe_writes_json_missing_offsets() {
+        let json = r#"{ "description": "no offsets key" }"#;
+        assert!(parse_safe_writes_json(json).is_none());
+    }
+
+    #[test]
+    fn parse_safe_writes_json_invalid_hex() {
+        let json = r#"{ "offsets": ["0xZZ"] }"#;
+        assert!(parse_safe_writes_json(json).is_none());
+    }
+
+    #[test]
+    fn parse_safe_writes_json_malformed() {
+        assert!(parse_safe_writes_json("not json").is_none());
+    }
+
+    #[test]
+    fn get_safe_write_offsets_returns_defaults_or_config() {
+        // The OnceLock may already be initialised from a prior test; either way
+        // the result must be non-empty and contain 0x1B.
+        let offsets = get_safe_write_offsets();
+        assert!(!offsets.is_empty());
+        assert!(offsets.contains(&0x1B));
     }
 }

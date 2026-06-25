@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t } from '../hooks/useI18n';
-import type { BatteryInfo as BatteryData } from '../hooks/useHardware';
+import type { BatteryInfo as BatteryData } from '../types/hardware';
 import InfoModal, { InfoRow, InfoSection } from './InfoModal';
 
 interface Props {

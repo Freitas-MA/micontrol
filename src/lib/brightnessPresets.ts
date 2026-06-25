@@ -1,4 +1,4 @@
-import type { AiBrightnessConfig } from '../hooks/useHardware';
+import type { AiBrightnessConfig } from '../types/hardware';
 
 export interface BrightnessPreset {
   key: string;

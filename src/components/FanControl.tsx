@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t } from '../hooks/useI18n';
-import type { FanInfo } from '../hooks/useHardware';
+import type { FanInfo } from '../types/hardware';
 import { useToast } from '../contexts/ToastContext';
 
 interface Props {

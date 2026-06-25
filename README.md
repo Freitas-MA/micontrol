@@ -15,6 +15,7 @@
 - **IoT Service Integration** — Communicate with the embedded controller via EC RAM access, handle hotkeys, and cast the screen wirelessly.
 - **Driver Management** — Scan, install, and update hardware drivers with guided workflows.
 - **System Info Dashboard** — Real-time CPU, GPU, RAM, and storage monitoring at a glance.
+- **AI-Powered Analysis** — Optional AI system advisor that analyses your hardware logs and provides personalised recommendations for thermal management, performance modes, and battery health. Supports OpenAI, Ollama, and any OpenAI-compatible provider. See [AI Features Documentation](docs/ai-features.md) for details on data handling, privacy, and supported models.
 - **Privacy-First** — All data stays local by default. Telemetry requires explicit opt-in via the consent audit log. Every privileged operation is logged and integrity-verified with HMAC.
 - **Multi-Language** — Available in English, Portuguese, Spanish, and French.
 

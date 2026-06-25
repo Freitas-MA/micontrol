@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AiConfigForm from '../components/AiConfigForm';
-import type { AppSettings } from '../hooks/useSettings';
+import type { AppSettings } from '../types/settings';
 
 vi.mock('../hooks/useI18n', () => ({
   t: (key: string, opts?: Record<string, unknown>) => {

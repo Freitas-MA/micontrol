@@ -14,7 +14,7 @@ import { t } from '../hooks/useI18n';
 import { getLanguage } from '../hooks/useI18n';
 import { useToast } from '../contexts/ToastContext';
 import type { useSettings as UseSettings } from '../hooks/useSettings';
-import type { AnalysisLogEntry } from '../hooks/useSettings';
+import type { AnalysisLogEntry } from '../types/settings';
 import type { useHardware } from '../hooks/useHardware';
 import {
   loadLogs,
@@ -25,6 +25,7 @@ import {
   type LastAnalysis,
 } from '../hooks/useAnalysisLogger';
 import './AiAnalysis.css';
+import AiFeedback from './AiFeedback';
 
 type Hardware = ReturnType<typeof useHardware>;
 type AiSettings = ReturnType<typeof UseSettings>;
@@ -595,6 +596,18 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
         {!ai.settings.ai_analysis_enabled && (
           <div className="ai-settings-disabled-hint">{t('aiAnalysis.settings.disabledHint')}</div>
         )}
+
+        {/* Documentation link */}
+        <div className="ai-settings-docs-link">
+          📖{' '}
+          <a
+            href="https://github.com/Freitas-MA/miPC/blob/master/micontrol/docs/ai-features.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t('settings.aiDocsLink')}
+          </a>
+        </div>
       </div>
 
       {/* ── Charts card ───────────────────────────────────────────────────── */}
@@ -747,6 +760,7 @@ export default function AiAnalysis({ hw, ai, onOpenSettings }: Props) {
         {lastAnalysis && !analyzing && (
           <div className="ai-analysis-result">
             <RenderAnalysis text={lastAnalysis.text} />
+            <AiFeedback analysisId={lastAnalysis.ts} />
           </div>
         )}
 

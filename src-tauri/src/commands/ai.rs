@@ -127,6 +127,13 @@ pub async fn analyze_system(
     // S18-13: Log suspicious input patterns at warn level.
     check_suspicious_input(&sanitized);
 
+    // S28-012: Check the in-memory AI response cache before making an HTTP
+    // request.  Identical system contexts within the TTL window return the
+    // cached response, saving tokens and reducing cost.
+    if let Some(cached) = crate::util::ai_cache::get(&sanitized) {
+        return Ok(cached);
+    }
+
     // Read API key from keyring
     let entry =
         Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| format!("Keyring error: {e}"))?;
@@ -183,10 +190,13 @@ pub async fn analyze_system(
     // S18-13: Validate output for prompt-injection patterns.
     let content = validate_output(&content)?;
 
+    // S28-012: Store the validated response in the cache for future lookups.
+    crate::util::ai_cache::put(&sanitized, &content);
+
     // Track usage — approximate estimation based on I/O
     let input_tokens = sanitized.len() as u64 / 4; // rough char→token estimate
     let output_tokens = content.len() as u64 / 4;
-    crate::util::ai_usage::record_usage(input_tokens, output_tokens);
+    crate::util::ai_usage::record_usage(&model, input_tokens, output_tokens);
 
     Ok(content)
 }

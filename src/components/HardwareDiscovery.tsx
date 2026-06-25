@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t } from '../hooks/useI18n';
-import type { HardwareProfile, MissingDriver } from '../hooks/useHardware';
+import type { HardwareProfile, MissingDriver } from '../types/hardware';
 import { useToast } from '../contexts/ToastContext';
 
 interface Props {

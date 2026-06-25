@@ -1,5 +1,5 @@
 import { t } from '../hooks/useI18n';
-import type { PerformanceMode } from '../hooks/useHardware';
+import type { PerformanceMode } from '../types/hardware';
 import { useToast } from '../contexts/ToastContext';
 
 interface Props {

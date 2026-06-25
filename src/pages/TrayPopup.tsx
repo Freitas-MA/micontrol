@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { t } from '../hooks/useI18n';
-import type { useHardware, PerformanceMode } from '../hooks/useHardware';
+import type { useHardware } from '../hooks/useHardware';
+import type { PerformanceMode } from '../types/hardware';
 import { useSettings } from '../hooks/useSettings';
 import { BRIGHTNESS_PRESETS, getActivePreset } from '../lib/brightnessPresets';
 

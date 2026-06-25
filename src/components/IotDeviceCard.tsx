@@ -1,16 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-
-interface IotDeviceInfo {
-  pipe_available: boolean;
-  model: string | null;
-  fw_version: string | null;
-  bind_status: { bound: boolean; uid: number | null } | null;
-  device_id: number | null;
-  device_status: string | null;
-  wifi_status: { wifi_status: number; ssid: string | null } | null;
-  wifi_network_count: number | null;
-}
+import type { IotDeviceInfo } from '../types/hardware';
 
 export default function IotDeviceCard() {
   const [info, setInfo] = useState<IotDeviceInfo | null>(null);

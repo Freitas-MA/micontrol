@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t } from '../hooks/useI18n';
-import type { SystemInfo, ProcessInfo } from '../hooks/useHardware';
+import type { SystemInfo, ProcessInfo } from '../types/hardware';
 import ProcessModal from './ProcessModal';
 
 interface Props {

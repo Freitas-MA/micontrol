@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ProcessInfo } from '../hooks/useHardware';
+import type { ProcessInfo } from '../types/hardware';
 
 interface Props {
   open: boolean;

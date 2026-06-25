@@ -12,7 +12,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { useHardware } from './useHardware';
 import type { useSettings as UseSettings } from './useSettings';
-import type { AnalysisLogEntry } from './useSettings';
+import type { AnalysisLogEntry } from '../types/settings';
 
 type Hardware = ReturnType<typeof useHardware>;
 type Settings = ReturnType<typeof UseSettings>;

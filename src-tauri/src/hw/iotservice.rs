@@ -290,7 +290,7 @@ pub struct WiFiCountInfo {
 }
 
 /// Power event types monitored by IoTService.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(clippy::enum_variant_names)]
 pub enum PowerEventType {
@@ -334,6 +334,21 @@ pub struct PowerEvent {
 pub struct EcEvent {
     pub event_func: u32,
     pub event_value: u32,
+}
+
+/// Unified IoT event notification type.
+///
+/// Consolidates power events, EC events, and laptop status reports into a
+/// single enum so the frontend can use one `iot_notify_event` command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IotEvent {
+    /// A power setting change event (AC/DC, battery, monitor, etc.).
+    Power { event: PowerEvent },
+    /// An EC (Embedded Controller) event.
+    Ec { event_func: u32, event_value: u32 },
+    /// A laptop lifecycle status report (boot ready, suspending, shutting).
+    LaptopStatus { status: LaptopStatus },
 }
 
 /// SetDeviceStatus request payload.
@@ -1020,6 +1035,21 @@ pub fn notify_ec_event(event_func: u32, event_value: u32) -> HardwareResult<()> 
     Ok(())
 }
 
+/// Send a unified IoT event notification to IoTService.
+///
+/// This is the consolidated entry point that dispatches to `notify_power_event`,
+/// `notify_ec_event`, or `send_laptop_status` depending on the variant.
+pub fn notify_event(event: &IotEvent) -> HardwareResult<()> {
+    match event {
+        IotEvent::Power { event } => notify_power_event(event),
+        IotEvent::Ec {
+            event_func,
+            event_value,
+        } => notify_ec_event(*event_func, *event_value),
+        IotEvent::LaptopStatus { status } => send_laptop_status(*status),
+    }
+}
+
 // ── Aggregate device info query ──────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IotDeviceInfo {
@@ -1049,6 +1079,40 @@ pub fn get_device_info() -> IotDeviceInfo {
         device_status: get_device_status().ok(),
         wifi_status: read_wifi_status().ok(),
         wifi_network_count: read_wifi_count().ok(),
+    }
+}
+
+/// Consolidated WiFi list response.
+///
+/// Combines WiFi connection status, provisioned network count, and the full
+/// list of provisioned WiFi items into a single struct so the frontend can
+/// fetch everything with one `get_iot_wifi_list` command.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct IotWifiList {
+    /// Current WiFi connection status (None if the query fails).
+    pub status: Option<WiFiStatusInfo>,
+    /// Number of provisioned WiFi networks on the IoT device.
+    pub count: u32,
+    /// All provisioned WiFi items (may be shorter than `count` if individual
+    /// lookups fail).
+    pub networks: Vec<WiFiItemInfo>,
+}
+
+/// Get the full WiFi provisioning list in one call.
+///
+/// Reads the count, then iterates indices 0..count to collect all items.
+/// The connection status is fetched independently.  Individual failures are
+/// tolerated — the corresponding item is simply omitted from `networks`.
+pub fn get_wifi_list() -> IotWifiList {
+    let count = read_wifi_count().unwrap_or(0);
+    let status = read_wifi_status().ok();
+    let networks = (0..count)
+        .filter_map(|i| get_wifi_by_index(i).ok())
+        .collect();
+    IotWifiList {
+        status,
+        count,
+        networks,
     }
 }
 
@@ -1288,5 +1352,94 @@ mod tests {
             decrypted, password,
             "AES-GCM decrypt should recover original password"
         );
+    }
+
+    // ── IotEvent tagged enum serialization (S28-005) ──────────────────────
+
+    #[test]
+    fn test_iot_event_power_serialization() {
+        let event = IotEvent::Power {
+            event: PowerEvent {
+                event_type: PowerEventType::AcDcSourceChange,
+                ac_online: Some(true),
+                battery_percent: None,
+                monitor_on: None,
+                battery_saver_on: None,
+                power_scheme: None,
+                away_mode: None,
+                lid_open: None,
+                display_on: None,
+                user_present: None,
+            },
+        };
+        let json = serde_json::to_string(&event).expect("serialize Power variant");
+        assert!(
+            json.contains("\"kind\":\"power\""),
+            "Power variant should have kind=power: {json}"
+        );
+        let parsed: IotEvent = serde_json::from_str(&json).expect("deserialize Power variant");
+        match parsed {
+            IotEvent::Power { event } => {
+                assert_eq!(event.event_type, PowerEventType::AcDcSourceChange);
+                assert_eq!(event.ac_online, Some(true));
+            }
+            _ => panic!("expected Power variant, got something else"),
+        }
+    }
+
+    #[test]
+    fn test_iot_event_ec_serialization() {
+        let event = IotEvent::Ec {
+            event_func: 0x5001,
+            event_value: 42,
+        };
+        let json = serde_json::to_string(&event).expect("serialize Ec variant");
+        assert!(
+            json.contains("\"kind\":\"ec\""),
+            "Ec variant should have kind=ec: {json}"
+        );
+        let parsed: IotEvent = serde_json::from_str(&json).expect("deserialize Ec variant");
+        match parsed {
+            IotEvent::Ec {
+                event_func,
+                event_value,
+            } => {
+                assert_eq!(event_func, 0x5001);
+                assert_eq!(event_value, 42);
+            }
+            _ => panic!("expected Ec variant, got something else"),
+        }
+    }
+
+    #[test]
+    fn test_iot_event_laptop_status_serialization() {
+        let event = IotEvent::LaptopStatus {
+            status: LaptopStatus::Suspending,
+        };
+        let json = serde_json::to_string(&event).expect("serialize LaptopStatus variant");
+        assert!(
+            json.contains("\"kind\":\"laptop_status\""),
+            "LaptopStatus variant should have kind=laptop_status: {json}"
+        );
+        let parsed: IotEvent =
+            serde_json::from_str(&json).expect("deserialize LaptopStatus variant");
+        match parsed {
+            IotEvent::LaptopStatus { status } => {
+                assert_eq!(status, LaptopStatus::Suspending);
+            }
+            _ => panic!("expected LaptopStatus variant, got something else"),
+        }
+    }
+
+    #[test]
+    fn test_iot_wifi_list_default() {
+        // Verify the default struct has expected empty values.
+        let list = IotWifiList::default();
+        assert_eq!(list.count, 0, "count should be 0 by default");
+        assert!(
+            list.networks.is_empty(),
+            "networks should be empty by default"
+        );
+        assert!(list.status.is_none(), "status should be None by default");
     }
 }

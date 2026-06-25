@@ -1,5 +1,5 @@
 ﻿import { t } from '../hooks/useI18n';
-import type { UpdateStatus } from '../hooks/useHardware';
+import type { UpdateStatus } from '../types/hardware';
 
 interface Props {
   updateStatus: UpdateStatus | null;

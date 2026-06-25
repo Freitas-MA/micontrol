@@ -50,3 +50,8 @@ Desktop.ini
 # msdm.dat contains the Windows OEM product key — NEVER commit.
 *.dat
 acpi_dump/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

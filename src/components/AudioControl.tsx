@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useToast } from '../contexts/ToastContext';
 import { t } from '../hooks/useI18n';
-import type { AudioVolumeResult } from '../hooks/useHardware';
+import type { AudioVolumeResult } from '../types/hardware';
 
 interface AudioDevice {
   name: string;

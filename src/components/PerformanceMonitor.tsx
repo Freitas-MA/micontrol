@@ -1,5 +1,5 @@
 import { t } from '../hooks/useI18n';
-import type { FanInfo, SystemInfo, PerformanceMode, PerformanceResult } from '../hooks/useHardware';
+import type { FanInfo, SystemInfo, PerformanceMode, PerformanceResult } from '../types/hardware';
 
 interface Props {
   fan: FanInfo | null;

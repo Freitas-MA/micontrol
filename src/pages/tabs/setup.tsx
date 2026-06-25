@@ -3,16 +3,12 @@ import { PageHeader } from './PageHeader';
 import { t } from '../../hooks/useI18n';
 import HardwareDiscovery from '../../components/HardwareDiscovery';
 import type { useHardware } from '../../hooks/useHardware';
+import type { IotRegionName } from '../../types/hardware';
 import type { Hardware } from './shared';
 
 type HardwareInstance = ReturnType<typeof useHardware>;
 
-const IOT_REGIONS: import('../../hooks/useHardware').IotRegionName[] = [
-  'ERAM',
-  'SMA2',
-  'IOT_STATUS',
-  'IOT_SENSORS',
-];
+const IOT_REGIONS: IotRegionName[] = ['ERAM', 'SMA2', 'IOT_STATUS', 'IOT_SENSORS'];
 
 function formatHexPreview(hex: string, bytes = 16): string {
   if (!hex) return '—';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t, useLanguage } from '../hooks/useI18n';
-import type { AppSettings } from '../hooks/useSettings';
+import type { AppSettings } from '../types/settings';
 import { invoke } from '@tauri-apps/api/core';
 import AiConfigForm from './AiConfigForm';
 import PrivacyConsentSection from './PrivacyConsentSection';

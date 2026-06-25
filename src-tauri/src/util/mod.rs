@@ -3,6 +3,7 @@
 //! Provides cross-cutting helpers used by both the hardware layer
 //! and command handlers.
 
+pub mod ai_cache;
 pub mod ai_usage;
 pub mod auth;
 pub mod blocking;

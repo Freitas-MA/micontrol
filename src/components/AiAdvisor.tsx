@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { t } from '../hooks/useI18n';
 import type { useHardware } from '../hooks/useHardware';
 import type { useSettings as UseSettings } from '../hooks/useSettings';
+import AiFeedback from './AiFeedback';
 
 type Hardware = ReturnType<typeof useHardware>;
 type Settings = ReturnType<typeof UseSettings>;
@@ -53,6 +54,7 @@ export default function AiAdvisor({ hw, ai, onOpenSettings }: Props) {
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
 
   async function handleAnalyze() {
     setStatus('loading');
@@ -69,6 +71,7 @@ export default function AiAdvisor({ hw, ai, onOpenSettings }: Props) {
         capabilities: hw.hardwareProfile?.capabilities ?? null,
       });
       setResult(text);
+      setAnalysisId(new Date().toISOString());
       setStatus('done');
     } catch (e) {
       const msg = String(e).replace(/^Error:\s*/, '');
@@ -205,6 +208,7 @@ export default function AiAdvisor({ hw, ai, onOpenSettings }: Props) {
                     </button>
                   </div>
                   <RenderAnalysis text={result} />
+                  <AiFeedback analysisId={analysisId ?? ''} />
                 </div>
               )}
             </>

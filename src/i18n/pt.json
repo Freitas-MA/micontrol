@@ -527,12 +527,17 @@
     "baseUrlHint": "Altere para usar um fornecedor personalizado (Ollama, Azure OpenAI, LM Studio, etc.)",
     "model": "Modelo",
     "modelHint": "gpt-4o-mini é recomendado — rápido e económico para análise de hardware",
+    "presetGpt4oMini": "GPT-4o Mini (rápido, barato)",
+    "presetGpt4o": "GPT-4o (melhor qualidade)",
+    "presetGpt4Turbo": "GPT-4 Turbo",
+    "presetCustom": "Personalizado (escreva abaixo)",
     "save": "Guardar",
     "testConnection": "Testar Ligação",
     "testing": "A testar…",
     "testOk": "Ligação bem-sucedida",
     "reset": "Restaurar predefinições",
     "storageNote": "A chave API é armazenada com segurança no Gerenciador de Credenciais do Windows. Ela é enviada ao provedor de IA ao fazer solicitações de análise.",
+    "aiDocsLink": "Leia a documentação de funcionalidades de IA (tratamento de dados, privacidade, modelos suportados)",
     "apiKeyMissing": "Chave API não configurada. Vá a Definições para adicionar a sua chave.",
     "customEndpointWarning": "Os dados são enviados para um endpoint personalizado, não para a OpenAI. Verifique se confia neste fornecedor.",
     "privacy": "Privacidade",
@@ -727,7 +732,11 @@
       "nextIn": "Próxima revisão automática em",
       "due": "Agora",
       "notEnoughData": "Dados insuficientes. Recolha pelo menos 2 snapshots primeiro.",
-      "success": "Análise concluída"
+      "success": "Análise concluída",
+      "feedbackQuestion": "Esta análise foi útil?",
+      "feedbackUp": "Útil",
+      "feedbackDown": "Não útil",
+      "feedbackThanks": "Obrigado pelo seu feedback!"
     },
     "logs": {
       "title": "Visualizador de Logs",
@@ -766,5 +775,26 @@
       "compactMessage": "Ocorreu um erro ao carregar este separador.",
       "reloadTab": "Recarregar separador"
     }
+  },
+  "ecrDebug": {
+    "title": "🔧 Painel de Depuração EC",
+    "subtitle": "Acesso direto à RAM EC (avançado)",
+    "readEcram": "Ler ECRAM",
+    "writeEcram": "Escrever ECRAM",
+    "readButton": "Ler",
+    "writeButton": "Escrever",
+    "readMap": "📋 Ler Mapa ECRAM",
+    "result": "Resultado",
+    "addressPlaceholder": "Endereço (hex)",
+    "countPlaceholder": "Quantidade",
+    "hexDataPlaceholder": "Dados hex",
+    "readError": "Erro de leitura: {error}",
+    "writeError": "Erro de escrita: {error}",
+    "mapError": "Erro de mapa: {error}",
+    "invalidHexData": "Dados hex inválidos: devem conter apenas caracteres hex (0-9, A-F)",
+    "invalidAddress": "Formato de endereço inválido: deve ser um número hex",
+    "addressOutOfRange": "Endereço fora do intervalo seguro da RAM EC (0x{min}–0x{max})",
+    "writeWarning": "⚠️ AVISO: Escrever na RAM EC pode danificar o dispositivo. Tem a certeza de que pretende continuar?",
+    "writeSuccess": "Escrita bem-sucedida"
   }
 }

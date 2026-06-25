@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useToast } from '../contexts/ToastContext';
+import { useI18n } from '../hooks/useI18n';
 
 /** Regex matching one or more hex digits (no whitespace, no 0x prefix). */
 const HEX_RE = /^[0-9A-Fa-f]+$/;
@@ -29,6 +30,7 @@ export default function EcrDebugPanel() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const { addToast } = useToast();
+  const { t } = useI18n();
 
   const handleRead = async () => {
     setLoading(true);
@@ -39,7 +41,11 @@ export default function EcrDebugPanel() {
       });
       setResult(data);
     } catch (e) {
-      addToast({ message: `Read error: ${String(e)}`, type: 'error', onRetry: handleRead });
+      addToast({
+        message: t('ecrDebug.readError', { error: String(e) }),
+        type: 'error',
+        onRetry: handleRead,
+      });
     } finally {
       setLoading(false);
     }
@@ -51,7 +57,7 @@ export default function EcrDebugPanel() {
     // Validate hex data format
     if (!isValidHexData(hexData)) {
       addToast({
-        message: 'Invalid hex data: must contain only hex characters (0-9, A-F)',
+        message: t('ecrDebug.invalidHexData'),
         type: 'error',
       });
       return;
@@ -60,21 +66,22 @@ export default function EcrDebugPanel() {
     // Validate address format and range
     const addrNum = parseHexAddress(address);
     if (addrNum === null) {
-      addToast({ message: 'Invalid address format: must be a hex number', type: 'error' });
+      addToast({ message: t('ecrDebug.invalidAddress'), type: 'error' });
       return;
     }
     if (addrNum < EC_RAM_SAFE_MIN || addrNum >= EC_RAM_SAFE_MAX) {
       addToast({
-        message: `Address out of safe EC RAM range (0x${EC_RAM_SAFE_MIN.toString(16).toUpperCase()}–0x${(EC_RAM_SAFE_MAX - 1).toString(16).toUpperCase()})`,
+        message: t('ecrDebug.addressOutOfRange', {
+          min: EC_RAM_SAFE_MIN.toString(16).toUpperCase(),
+          max: (EC_RAM_SAFE_MAX - 1).toString(16).toUpperCase(),
+        }),
         type: 'error',
       });
       return;
     }
 
     // Confirmation dialog — writing to EC RAM can brick the device
-    const confirmed = window.confirm(
-      '⚠️ WARNING: Writing to EC RAM can brick your device. Are you sure you want to proceed?',
-    );
+    const confirmed = window.confirm(t('ecrDebug.writeWarning'));
     if (!confirmed) return;
 
     setLoading(true);
@@ -83,9 +90,13 @@ export default function EcrDebugPanel() {
         address,
         hexData,
       });
-      addToast({ message: 'Write successful', type: 'success' });
+      addToast({ message: t('ecrDebug.writeSuccess'), type: 'success' });
     } catch (e) {
-      addToast({ message: `Write error: ${String(e)}`, type: 'error', onRetry: handleWrite });
+      addToast({
+        message: t('ecrDebug.writeError', { error: String(e) }),
+        type: 'error',
+        onRetry: handleWrite,
+      });
     } finally {
       setLoading(false);
     }
@@ -97,7 +108,11 @@ export default function EcrDebugPanel() {
       const map = await invoke<string>('get_ecram_map');
       setResult(JSON.stringify(map, null, 2));
     } catch (e) {
-      addToast({ message: `Map error: ${String(e)}`, type: 'error', onRetry: handleReadMap });
+      addToast({
+        message: t('ecrDebug.mapError', { error: String(e) }),
+        type: 'error',
+        onRetry: handleReadMap,
+      });
     } finally {
       setLoading(false);
     }
@@ -105,18 +120,19 @@ export default function EcrDebugPanel() {
 
   return (
     <div className="card">
-      <div className="card-title">🔧 EC Debug Panel</div>
-      <p className="page-subtitle">Direct EC RAM access (advanced)</p>
+      <div className="card-title">{t('ecrDebug.title')}</div>
+      <p className="page-subtitle">{t('ecrDebug.subtitle')}</p>
 
       {/* Read */}
       <div style={{ marginTop: 12 }}>
         <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: 'var(--text-dim)' }}>
-          Read ECRAM
+          {t('ecrDebug.readEcram')}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input
             type="text"
-            placeholder="Address (hex)"
+            placeholder={t('ecrDebug.addressPlaceholder')}
+            aria-label={t('ecrDebug.addressPlaceholder')}
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             style={{
@@ -131,7 +147,8 @@ export default function EcrDebugPanel() {
           />
           <input
             type="number"
-            placeholder="Count"
+            placeholder={t('ecrDebug.countPlaceholder')}
+            aria-label={t('ecrDebug.countPlaceholder')}
             value={count}
             onChange={(e) => setCount(e.target.value)}
             min={1}
@@ -145,8 +162,13 @@ export default function EcrDebugPanel() {
               color: 'var(--text)',
             }}
           />
-          <button className="btn btn-primary" onClick={handleRead} disabled={loading}>
-            Read
+          <button
+            className="btn btn-primary"
+            onClick={handleRead}
+            disabled={loading}
+            aria-label={t('ecrDebug.readButton')}
+          >
+            {t('ecrDebug.readButton')}
           </button>
         </div>
       </div>
@@ -154,12 +176,13 @@ export default function EcrDebugPanel() {
       {/* Write */}
       <div style={{ marginTop: 12 }}>
         <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: 'var(--text-dim)' }}>
-          Write ECRAM
+          {t('ecrDebug.writeEcram')}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input
             type="text"
-            placeholder="Address (hex)"
+            placeholder={t('ecrDebug.addressPlaceholder')}
+            aria-label={t('ecrDebug.addressPlaceholder')}
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             style={{
@@ -174,7 +197,8 @@ export default function EcrDebugPanel() {
           />
           <input
             type="text"
-            placeholder="Hex data"
+            placeholder={t('ecrDebug.hexDataPlaceholder')}
+            aria-label={t('ecrDebug.hexDataPlaceholder')}
             value={hexData}
             onChange={(e) => setHexData(e.target.value)}
             style={{
@@ -187,8 +211,13 @@ export default function EcrDebugPanel() {
               color: 'var(--text)',
             }}
           />
-          <button className="btn btn-primary" onClick={handleWrite} disabled={loading}>
-            Write
+          <button
+            className="btn btn-primary"
+            onClick={handleWrite}
+            disabled={loading}
+            aria-label={t('ecrDebug.writeButton')}
+          >
+            {t('ecrDebug.writeButton')}
           </button>
         </div>
       </div>
@@ -198,16 +227,17 @@ export default function EcrDebugPanel() {
         className="btn btn-secondary"
         onClick={handleReadMap}
         disabled={loading}
+        aria-label={t('ecrDebug.readMap')}
         style={{ marginTop: 12, width: '100%' }}
       >
-        📋 Read ECRAM Map
+        {t('ecrDebug.readMap')}
       </button>
 
       {/* Result */}
       {result && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: 'var(--text-dim)' }}>
-            Result
+            {t('ecrDebug.result')}
           </div>
           <pre
             style={{

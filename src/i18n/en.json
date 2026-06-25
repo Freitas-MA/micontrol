@@ -562,12 +562,17 @@
     "baseUrlHint": "Change to use a custom provider (Ollama, Azure OpenAI, LM Studio, etc.)",
     "model": "Model",
     "modelHint": "gpt-4o-mini is recommended — fast and cost-effective for hardware analysis",
+    "presetGpt4oMini": "GPT-4o Mini (fast, cheap)",
+    "presetGpt4o": "GPT-4o (best quality)",
+    "presetGpt4Turbo": "GPT-4 Turbo",
+    "presetCustom": "Custom (type below)",
     "save": "Save",
     "testConnection": "Test Connection",
     "testing": "Testing…",
     "testOk": "Connection successful",
     "reset": "Reset to defaults",
     "storageNote": "API key is stored securely in Windows Credential Manager. It is sent to the AI provider when making analysis requests.",
+    "aiDocsLink": "Read the AI Features documentation (data handling, privacy, supported models)",
     "apiKeyMissing": "API key not configured. Go to Settings to add your key.",
     "customEndpointWarning": "Data is sent to a custom endpoint, not to OpenAI. Verify you trust this provider.",
     "privacy": "Privacy",
@@ -737,7 +742,11 @@
       "nextIn": "Next auto-review in",
       "due": "Due now",
       "notEnoughData": "Not enough data yet. Collect at least 2 snapshots first.",
-      "success": "Analysis complete"
+      "success": "Analysis complete",
+      "feedbackQuestion": "Was this analysis helpful?",
+      "feedbackUp": "Helpful",
+      "feedbackDown": "Not helpful",
+      "feedbackThanks": "Thanks for your feedback!"
     },
     "logs": {
       "title": "Raw Log Viewer",
@@ -776,5 +785,26 @@
       "compactMessage": "An error occurred while loading this tab.",
       "reloadTab": "Reload tab"
     }
+  },
+  "ecrDebug": {
+    "title": "🔧 EC Debug Panel",
+    "subtitle": "Direct EC RAM access (advanced)",
+    "readEcram": "Read ECRAM",
+    "writeEcram": "Write ECRAM",
+    "readButton": "Read",
+    "writeButton": "Write",
+    "readMap": "📋 Read ECRAM Map",
+    "result": "Result",
+    "addressPlaceholder": "Address (hex)",
+    "countPlaceholder": "Count",
+    "hexDataPlaceholder": "Hex data",
+    "readError": "Read error: {error}",
+    "writeError": "Write error: {error}",
+    "mapError": "Map error: {error}",
+    "invalidHexData": "Invalid hex data: must contain only hex characters (0-9, A-F)",
+    "invalidAddress": "Invalid address format: must be a hex number",
+    "addressOutOfRange": "Address out of safe EC RAM range (0x{min}–0x{max})",
+    "writeWarning": "⚠️ WARNING: Writing to EC RAM can brick your device. Are you sure you want to proceed?",
+    "writeSuccess": "Write successful"
   }
 }

@@ -13,7 +13,7 @@ import type {
   SystemInfo,
   UpdateStatus,
   XiaomiDriverInfo,
-} from '../hooks/useHardware';
+} from '../types/hardware';
 
 // ── Persisted mock state (simulates registry / IPC) ─────────────────────────
 

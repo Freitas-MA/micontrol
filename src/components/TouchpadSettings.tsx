@@ -1,5 +1,5 @@
 import { t } from '../hooks/useI18n';
-import type { TouchpadInfo, HardwareCapabilities } from '../hooks/useHardware';
+import type { TouchpadInfo, HardwareCapabilities } from '../types/hardware';
 import ToggleRow from './ToggleRow';
 
 interface Props {

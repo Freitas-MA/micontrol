@@ -1,6 +1,7 @@
 //! AI usage tracking — local-only tracking of AI requests and token usage.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::util::panic::lock_or_recover;
@@ -16,6 +17,11 @@ pub struct AiUsageStats {
     pub today_count: u64,
     /// Day number (days since Unix epoch) when `today_count` was last reset.
     pub last_reset_day: u64,
+    /// Per-model request count (model name → number of requests).
+    /// `#[serde(default)]` ensures backward compatibility with old JSON files
+    /// that don't have this field — they default to an empty HashMap.
+    #[serde(default)]
+    pub model_usage: HashMap<String, u64>,
 }
 
 /// Cost per 1M tokens (example rates — adjust based on actual provider).
@@ -119,7 +125,9 @@ pub fn check_daily_limit(daily_limit: u64) -> Result<(), String> {
 }
 
 /// Record an AI request's token usage.
-pub fn record_usage(input_tokens: u64, output_tokens: u64) {
+///
+/// `model` is the model name used for this request (e.g. `"gpt-4o"`).
+pub fn record_usage(model: &str, input_tokens: u64, output_tokens: u64) {
     let mut usage = lock_or_recover(&USAGE);
     let stats = usage.get_or_insert_with(AiUsageStats::default);
     maybe_reset_daily(stats);
@@ -129,6 +137,7 @@ pub fn record_usage(input_tokens: u64, output_tokens: u64) {
     stats.total_output_tokens += output_tokens;
     stats.estimated_cost_usd += (input_tokens as f64 / 1_000_000.0) * COST_PER_1M_INPUT_TOKENS
         + (output_tokens as f64 / 1_000_000.0) * COST_PER_1M_OUTPUT_TOKENS;
+    *stats.model_usage.entry(model.to_string()).or_insert(0) += 1;
     #[cfg(not(test))]
     stats.save_to_file();
 }
@@ -166,23 +175,26 @@ mod tests {
     fn test_record_usage_increments_counters() {
         let _lock = USAGE_LOCK.lock().unwrap();
         reset_usage();
-        record_usage(100, 200);
+        record_usage("test-model", 100, 200);
         let stats = get_usage();
         assert_eq!(stats.total_requests, 1);
         assert_eq!(stats.total_input_tokens, 100);
         assert_eq!(stats.total_output_tokens, 200);
+        assert_eq!(stats.model_usage.get("test-model"), Some(&1));
     }
 
     #[test]
     fn test_get_usage_returns_correct_stats() {
         let _lock = USAGE_LOCK.lock().unwrap();
         reset_usage();
-        record_usage(50, 60);
-        record_usage(70, 80);
+        record_usage("model-a", 50, 60);
+        record_usage("model-b", 70, 80);
         let stats = get_usage();
         assert_eq!(stats.total_requests, 2);
         assert_eq!(stats.total_input_tokens, 120);
         assert_eq!(stats.total_output_tokens, 140);
+        assert_eq!(stats.model_usage.get("model-a"), Some(&1));
+        assert_eq!(stats.model_usage.get("model-b"), Some(&1));
         // Cost: (120/1M * 0.10) + (140/1M * 0.30)
         let expected_cost = (120.0 / 1_000_000.0) * COST_PER_1M_INPUT_TOKENS
             + (140.0 / 1_000_000.0) * COST_PER_1M_OUTPUT_TOKENS;
@@ -192,14 +204,15 @@ mod tests {
     #[test]
     fn test_reset_usage_clears_counters() {
         let _lock = USAGE_LOCK.lock().unwrap();
-        record_usage(100, 200);
-        record_usage(300, 400);
+        record_usage("test-model", 100, 200);
+        record_usage("test-model", 300, 400);
         reset_usage();
         let stats = get_usage();
         assert_eq!(stats.total_requests, 0);
         assert_eq!(stats.total_input_tokens, 0);
         assert_eq!(stats.total_output_tokens, 0);
         assert_eq!(stats.estimated_cost_usd, 0.0);
+        assert!(stats.model_usage.is_empty());
     }
 
     #[test]
@@ -213,7 +226,7 @@ mod tests {
             .map(|_| {
                 thread::spawn(|| {
                     for _ in 0..100 {
-                        record_usage(10, 20);
+                        record_usage("concurrent-model", 10, 20);
                     }
                 })
             })
@@ -234,8 +247,8 @@ mod tests {
         let _lock = USAGE_LOCK.lock().unwrap();
         reset_usage();
         assert!(check_daily_limit(5).is_ok());
-        record_usage(10, 20);
-        record_usage(10, 20);
+        record_usage("test-model", 10, 20);
+        record_usage("test-model", 10, 20);
         assert!(check_daily_limit(5).is_ok());
     }
 
@@ -244,7 +257,7 @@ mod tests {
         let _lock = USAGE_LOCK.lock().unwrap();
         reset_usage();
         for _ in 0..5 {
-            record_usage(10, 20);
+            record_usage("test-model", 10, 20);
         }
         assert!(check_daily_limit(5).is_err());
     }
@@ -253,7 +266,7 @@ mod tests {
     fn test_check_daily_limit_zero_means_unlimited() {
         let _lock = USAGE_LOCK.lock().unwrap();
         reset_usage();
-        record_usage(10, 20);
+        record_usage("test-model", 10, 20);
         assert!(check_daily_limit(0).is_ok());
     }
 
@@ -261,7 +274,7 @@ mod tests {
     fn test_daily_limit_error_message() {
         let _lock = USAGE_LOCK.lock().unwrap();
         reset_usage();
-        record_usage(10, 20);
+        record_usage("test-model", 10, 20);
         let err = check_daily_limit(1).unwrap_err();
         assert!(err.contains("Daily AI analysis limit reached"));
         assert!(err.contains("1/1"));
@@ -272,9 +285,9 @@ mod tests {
         let _lock = USAGE_LOCK.lock().unwrap();
         reset_usage();
         assert_eq!(get_usage().today_count, 0);
-        record_usage(10, 20);
+        record_usage("test-model", 10, 20);
         assert_eq!(get_usage().today_count, 1);
-        record_usage(10, 20);
+        record_usage("test-model", 10, 20);
         assert_eq!(get_usage().today_count, 2);
     }
 
@@ -287,7 +300,7 @@ mod tests {
         std::env::set_var("LOCALAPPDATA", &tmp);
 
         reset_usage();
-        record_usage(100, 200);
+        record_usage("save-load-model", 100, 200);
         let stats = get_usage();
         stats.save_to_file();
 
@@ -296,11 +309,41 @@ mod tests {
         assert_eq!(loaded.today_count, 1);
         assert_eq!(loaded.total_input_tokens, 100);
         assert_eq!(loaded.total_output_tokens, 200);
+        assert_eq!(loaded.model_usage.get("save-load-model"), Some(&1));
 
         match orig {
             Some(v) => std::env::set_var("LOCALAPPDATA", v),
             None => std::env::remove_var("LOCALAPPDATA"),
         }
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_backward_compat_missing_model_usage() {
+        // Simulate an old JSON file that doesn't have the `model_usage` field.
+        let old_json = r#"{
+            "total_requests": 5,
+            "total_input_tokens": 1000,
+            "total_output_tokens": 2000,
+            "estimated_cost_usd": 0.001,
+            "today_count": 3,
+            "last_reset_day": 20000
+        }"#;
+        let stats: AiUsageStats = serde_json::from_str(old_json).unwrap();
+        assert_eq!(stats.total_requests, 5);
+        assert!(stats.model_usage.is_empty());
+    }
+
+    #[test]
+    fn test_model_usage_tracks_multiple_models() {
+        let _lock = USAGE_LOCK.lock().unwrap();
+        reset_usage();
+        record_usage("gpt-4o", 100, 200);
+        record_usage("gpt-4o", 50, 60);
+        record_usage("gpt-4o-mini", 30, 40);
+        let stats = get_usage();
+        assert_eq!(stats.model_usage.get("gpt-4o"), Some(&2));
+        assert_eq!(stats.model_usage.get("gpt-4o-mini"), Some(&1));
+        assert_eq!(stats.total_requests, 3);
     }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { t } from '../hooks/useI18n';
-import type { DisplayInfo, HardwareCapabilities, AiBrightnessConfig } from '../hooks/useHardware';
+import type { DisplayInfo, HardwareCapabilities, AiBrightnessConfig } from '../types/hardware';
 import {
   BRIGHTNESS_PRESETS,
   getActivePreset,

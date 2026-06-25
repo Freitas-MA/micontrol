@@ -12,7 +12,7 @@
 
 #![allow(non_snake_case)]
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use windows::core::w;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -35,23 +35,53 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 // ── Shared state between gesture thread and OSD message loop ─────────────────
 
-static OSD_HWND: AtomicUsize = AtomicUsize::new(0);
-static OSD_LEVEL: AtomicU8 = AtomicU8::new(50);
-static OSD_HIDE_VER: AtomicU64 = AtomicU64::new(0);
-static OSD_ALPHA: AtomicU8 = AtomicU8::new(0);
-static OSD_SPIN_FRAME: AtomicU8 = AtomicU8::new(0);
-/// 0=hidden  1=entering(fade-in+spin)  2=showing  3=leaving(fade-out)
-static OSD_ANIM_PHASE: AtomicU8 = AtomicU8::new(0);
-/// Tracks mic mute state locally.
-static MIC_MUTED: AtomicBool = AtomicBool::new(false);
+/// Consolidated OSD state — replaces the former individual `static` declarations.
+///
+/// All fields use `Mutex<T>` for thread-safe interior mutability.  The entire
+/// struct is held in a `OnceLock` so it is initialised lazily on first access.
+#[allow(clippy::mutex_atomic)] // intentional: task S28-007 requires Mutex-based consolidation
+struct OsdState {
+    /// Window handle of the OSD overlay (0 until `run_message_loop` creates it).
+    hwnd: Mutex<usize>,
+    /// Current brightness level (0–100).
+    level: Mutex<u8>,
+    /// Monotonic counter bumped on every show request so a stale hide-timer
+    /// cannot cancel a newer display.
+    hide_ver: Mutex<u64>,
+    /// Current layered-window alpha (0–255) used for fade in/out.
+    alpha: Mutex<u8>,
+    /// Current spin-animation frame (0–`SPIN_TOTAL_FRAMES`).
+    spin_frame: Mutex<u8>,
+    /// 0 = hidden  1 = entering (fade-in + spin)  2 = showing  3 = leaving (fade-out)
+    anim_phase: Mutex<u8>,
+    /// Tracks mic mute state locally.
+    mic_muted: Mutex<bool>,
+    /// 0 = brightness  1 = mic-muted  2 = mic-active  3 = keyboard-light
+    mode: Mutex<u8>,
+    /// Unicode codepoint (u16 stored in u32) of the notification icon to draw.
+    /// Used when `mode` != 0.
+    notif_icon: Mutex<u32>,
+    /// Current keyboard backlight level (0–10). 0xFF = unknown.
+    kbl_level: Mutex<u8>,
+}
 
-/// 0 = brightness  1 = mic-muted  2 = mic-active  3 = keyboard-light
-static OSD_MODE: AtomicU8 = AtomicU8::new(0);
-/// Unicode codepoint (u16 stored in u32) of the notification icon to draw.
-/// Used when OSD_MODE != 0.
-static OSD_NOTIF_ICON: AtomicU32 = AtomicU32::new(0);
-/// Current keyboard backlight level (0–10). 0xFF = unknown (not reported by this event path).
-static OSD_KBL_LEVEL: AtomicU8 = AtomicU8::new(0xFF);
+static OSD_STATE: OnceLock<OsdState> = OnceLock::new();
+
+/// Obtain the global `OsdState`, initialising it with defaults on first call.
+fn state() -> &'static OsdState {
+    OSD_STATE.get_or_init(|| OsdState {
+        hwnd: Mutex::new(0),
+        level: Mutex::new(50),
+        hide_ver: Mutex::new(0),
+        alpha: Mutex::new(0),
+        spin_frame: Mutex::new(0),
+        anim_phase: Mutex::new(0),
+        mic_muted: Mutex::new(false),
+        mode: Mutex::new(0),
+        notif_icon: Mutex::new(0),
+        kbl_level: Mutex::new(0xFF),
+    })
+}
 
 // ── Layout constants (96-dpi logical pixels) ─────────────────────────────────
 
@@ -108,7 +138,7 @@ pub fn init() {
             // dedicated thread. All Win32 calls (RegisterClassExW, CreateWindowExW,
             // GetMessageW, DispatchMessageW) are FFI. The thread has no borrow
             // conflicts with the main thread because shared state goes through
-            // atomics (OSD_HWND, OSD_ALPHA, etc.).
+            // the OsdState struct (Mutex-protected, held in OnceLock).
             unsafe { run_message_loop() }
         })
     {
@@ -118,16 +148,19 @@ pub fn init() {
 
 /// Show (or refresh) the brightness OSD.  Safe to call from any thread.
 pub fn show_brightness_osd(level: u8) {
-    OSD_MODE.store(0, Ordering::Relaxed);
-    OSD_LEVEL.store(level, Ordering::Relaxed);
-    OSD_HIDE_VER.fetch_add(1, Ordering::Relaxed);
-    let raw = OSD_HWND.load(Ordering::Relaxed);
+    *state().mode.lock().unwrap() = 0;
+    *state().level.lock().unwrap() = level;
+    {
+        let mut g = state().hide_ver.lock().unwrap();
+        *g += 1;
+    }
+    let raw = *state().hwnd.lock().unwrap();
     if raw == 0 {
         return;
     }
     let hwnd = HWND(raw as *mut core::ffi::c_void);
     // SAFETY: hwnd was created by CreateWindowExW in run_message_loop and
-    // stored atomically in OSD_HWND; it remains valid for the window's lifetime.
+    // stored in OsdState.hwnd; it remains valid for the window's lifetime.
     // PostMessageW is thread-safe and does not require the calling thread to own
     // the window (it merely queues a message).
     unsafe {
@@ -139,7 +172,7 @@ pub fn show_brightness_osd(level: u8) {
 /// Stores the state and shows the appropriate icon and label.
 /// Safe to call from any thread.
 pub fn show_mic_mute_osd(muted: bool) {
-    MIC_MUTED.store(muted, Ordering::Relaxed);
+    *state().mic_muted.lock().unwrap() = muted;
     log::info!("[osd] Mic mute OSD: muted={}", muted);
     // Icon: U+E8D4 = MicOff (Segoe MDL2), U+E720 = Microphone (active)
     let (mode, icon) = if muted {
@@ -154,7 +187,11 @@ pub fn show_mic_mute_osd(muted: bool) {
 /// Use from Win32 HID consumer path where the resulting state is not known.
 /// Safe to call from any thread.
 pub fn show_mic_mute_osd_toggle() {
-    let muted = !MIC_MUTED.fetch_xor(true, Ordering::Relaxed);
+    let muted = {
+        let mut g = state().mic_muted.lock().unwrap();
+        *g ^= true;
+        *g
+    };
     log::info!("[osd] Mic mute OSD (toggle): muted={}", muted);
     let (mode, icon) = if muted {
         (1u8, 0xE8D4u16)
@@ -168,7 +205,7 @@ pub fn show_mic_mute_osd_toggle() {
 /// `level`: 0–10 = current backlight level; 0xFF = level unknown.
 /// Safe to call from any thread.
 pub fn show_keyboard_osd(level: u8) {
-    OSD_KBL_LEVEL.store(level, Ordering::Relaxed);
+    *state().kbl_level.lock().unwrap() = level;
     log::info!("[osd] Keyboard backlight OSD: level={}", level);
     // Icon: U+E765 = Keyboard (Segoe MDL2)
     show_notification_osd(3, 0xE765);
@@ -176,23 +213,27 @@ pub fn show_keyboard_osd(level: u8) {
 
 /// Internal helper — set mode+icon, post WM_OSD_NOTIF.
 fn show_notification_osd(mode: u8, icon_cp: u16) {
-    OSD_MODE.store(mode, Ordering::Relaxed);
-    OSD_NOTIF_ICON.store(icon_cp as u32, Ordering::Relaxed);
-    OSD_HIDE_VER.fetch_add(1, Ordering::Relaxed);
-    let raw = OSD_HWND.load(Ordering::Relaxed);
+    *state().mode.lock().unwrap() = mode;
+    *state().notif_icon.lock().unwrap() = icon_cp as u32;
+    {
+        let mut g = state().hide_ver.lock().unwrap();
+        *g += 1;
+    }
+    let raw = *state().hwnd.lock().unwrap();
     if raw == 0 {
         return;
     }
     let hwnd = HWND(raw as *mut core::ffi::c_void);
-    // SAFETY: hwnd was created by CreateWindowExW and stored atomically in
-    // OSD_HWND; it remains valid for the OSD window's lifetime. PostMessageW
-    // is safe to call from any thread (merely queues a message to the queue).
+    // SAFETY: hwnd was created by CreateWindowExW and stored in
+    // OsdState.hwnd; it remains valid for the OSD window's lifetime.
+    // PostMessageW is safe to call from any thread (merely queues a message
+    // to the queue).
     unsafe {
         let _ = PostMessageW(hwnd, WM_OSD_NOTIF, WPARAM(0), LPARAM(0));
     }
 }
 
-// ── WASAPI mic mute query — replaced by local toggle state (see MIC_MUTED) ─────
+// ── WASAPI mic mute query — replaced by local toggle state (see OsdState.mic_muted) ─
 // The mic key is a TOGGLE: pressing it toggles the mute state.
 // We track that toggle locally. This avoids a WASAPI COM dependency and is
 // equally correct once the key has been pressed at least once.
@@ -203,8 +244,8 @@ fn show_notification_osd(mode: u8, icon_cp: u16) {
 ///
 /// Must only be called once from a dedicated thread. Creates and owns a Win32
 /// window via RegisterClassExW/CreateWindowExW; the resulting HWND is stored in
-/// OSD_HWND for cross-thread message posting. The caller must ensure no concurrent
-/// window-procedure registration for the same class name.
+/// `OsdState.hwnd` for cross-thread message posting. The caller must ensure no
+/// concurrent window-procedure registration for the same class name.
 unsafe fn run_message_loop() {
     let hinstance = GetModuleHandleW(None).unwrap_or_default().into();
 
@@ -256,7 +297,7 @@ unsafe fn run_message_loop() {
     // Colorkey for rounded corners + alpha channel for fade-in/out.
     let _ = SetLayeredWindowAttributes(hwnd, COLORKEY, 0, LWA_COLORKEY | LWA_ALPHA);
 
-    OSD_HWND.store(hwnd.0 as usize, Ordering::Relaxed);
+    *state().hwnd.lock().unwrap() = hwnd.0 as usize;
 
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -284,7 +325,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
         WM_TIMER if wp.0 == TIMER_HIDE => {
             let _ = KillTimer(hwnd, TIMER_HIDE);
             // Start fade-out instead of immediate hide.
-            OSD_ANIM_PHASE.store(3, Ordering::Relaxed);
+            *state().anim_phase.lock().unwrap() = 3;
             let _ = SetTimer(hwnd, TIMER_ANIM, ANIM_MS, None);
             LRESULT(0)
         }
@@ -293,7 +334,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             LRESULT(0)
         }
         _ if msg == WM_OSD_SHOW => {
-            OSD_MODE.store(0, Ordering::Relaxed); // ensure brightness mode
+            *state().mode.lock().unwrap() = 0; // ensure brightness mode
             reposition_osd(hwnd, OSD_W, OSD_H);
             start_show_animation(hwnd);
             LRESULT(0)
@@ -339,7 +380,8 @@ unsafe fn reposition_osd(hwnd: HWND, w: i32, h: i32) {
 /// timer and show-window functions (SetTimer, KillTimer, ShowWindow,
 /// SetLayeredWindowAttributes, InvalidateRect) which require valid handles.
 unsafe fn start_show_animation(hwnd: HWND) {
-    match OSD_ANIM_PHASE.load(Ordering::Relaxed) {
+    let phase = *state().anim_phase.lock().unwrap();
+    match phase {
         1 => {
             // Already fading in — just repaint with the new level; let the
             // ongoing animation finish naturally.
@@ -355,11 +397,11 @@ unsafe fn start_show_animation(hwnd: HWND) {
             // Hidden (0) or fading out (3) — play the full enter animation.
             let _ = KillTimer(hwnd, TIMER_HIDE);
             let _ = KillTimer(hwnd, TIMER_ANIM);
-            OSD_SPIN_FRAME.store(0, Ordering::Relaxed);
-            OSD_ALPHA.store(0, Ordering::Relaxed);
+            *state().spin_frame.lock().unwrap() = 0;
+            *state().alpha.lock().unwrap() = 0;
             let _ = SetLayeredWindowAttributes(hwnd, COLORKEY, 0, LWA_COLORKEY | LWA_ALPHA);
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            OSD_ANIM_PHASE.store(1, Ordering::Relaxed);
+            *state().anim_phase.lock().unwrap() = 1;
             let _ = InvalidateRect(hwnd, None, true);
             let _ = SetTimer(hwnd, TIMER_ANIM, ANIM_MS, None);
         }
@@ -372,36 +414,41 @@ unsafe fn start_show_animation(hwnd: HWND) {
 /// SetTimer), SetLayeredWindowAttributes, InvalidateRect, and ShowWindow which
 /// are FFI calls that require valid handles.
 unsafe fn handle_anim_frame(hwnd: HWND) {
-    match OSD_ANIM_PHASE.load(Ordering::Relaxed) {
+    let phase = *state().anim_phase.lock().unwrap();
+    match phase {
         1 => {
             // Fade in + spin simultaneously.
-            let new_alpha = OSD_ALPHA
-                .load(Ordering::Relaxed)
-                .saturating_add(FADE_IN_ALPHA_STEP);
-            OSD_ALPHA.store(new_alpha, Ordering::Relaxed);
-            let new_sf = (OSD_SPIN_FRAME.load(Ordering::Relaxed) + 1).min(SPIN_TOTAL_FRAMES);
-            OSD_SPIN_FRAME.store(new_sf, Ordering::Relaxed);
+            let new_alpha = {
+                let mut g = state().alpha.lock().unwrap();
+                *g = g.saturating_add(FADE_IN_ALPHA_STEP);
+                *g
+            };
+            let new_sf = {
+                let mut g = state().spin_frame.lock().unwrap();
+                *g = (*g + 1).min(SPIN_TOTAL_FRAMES);
+                *g
+            };
             let _ = SetLayeredWindowAttributes(hwnd, COLORKEY, new_alpha, LWA_COLORKEY | LWA_ALPHA);
             let _ = InvalidateRect(hwnd, None, true);
             if new_alpha == 255 && new_sf >= SPIN_TOTAL_FRAMES {
-                OSD_ANIM_PHASE.store(2, Ordering::Relaxed);
+                *state().anim_phase.lock().unwrap() = 2;
                 let _ = KillTimer(hwnd, TIMER_ANIM);
                 let _ = SetTimer(hwnd, TIMER_HIDE, HIDE_MS, None);
             }
         }
         3 => {
             // Fade out.
-            let alpha = OSD_ALPHA.load(Ordering::Relaxed);
+            let alpha = *state().alpha.lock().unwrap();
             if alpha <= FADE_OUT_ALPHA_STEP {
-                OSD_ALPHA.store(0, Ordering::Relaxed);
-                OSD_ANIM_PHASE.store(0, Ordering::Relaxed);
+                *state().alpha.lock().unwrap() = 0;
+                *state().anim_phase.lock().unwrap() = 0;
                 let _ = KillTimer(hwnd, TIMER_ANIM);
                 // Reset to opaque before hiding so next show starts clean.
                 let _ = SetLayeredWindowAttributes(hwnd, COLORKEY, 255, LWA_COLORKEY | LWA_ALPHA);
                 let _ = ShowWindow(hwnd, SW_HIDE);
             } else {
                 let new_alpha = alpha - FADE_OUT_ALPHA_STEP;
-                OSD_ALPHA.store(new_alpha, Ordering::Relaxed);
+                *state().alpha.lock().unwrap() = new_alpha;
                 let _ =
                     SetLayeredWindowAttributes(hwnd, COLORKEY, new_alpha, LWA_COLORKEY | LWA_ALPHA);
                 let _ = InvalidateRect(hwnd, None, true);
@@ -420,7 +467,7 @@ unsafe fn handle_anim_frame(hwnd: HWND) {
 /// hwnd must be a valid window handle. Calls BeginPaint/EndPaint which require
 /// a valid HWND whose window class was registered with the calling thread.
 unsafe fn paint(hwnd: HWND) {
-    if OSD_MODE.load(Ordering::Relaxed) == 0 {
+    if *state().mode.lock().unwrap() == 0 {
         paint_brightness(hwnd);
     } else {
         paint_notification(hwnd);
@@ -520,8 +567,8 @@ fn keyboard_level_info(raw: u8) -> (i32, &'static str) {
 ///                             [████████░░░░░░]  50% (bar + percentage)
 ///                             Medium               (small, muted-gray)
 unsafe fn paint_notification(hwnd: HWND) {
-    let mode = OSD_MODE.load(Ordering::Relaxed);
-    let icon_cp = OSD_NOTIF_ICON.load(Ordering::Relaxed) as u16;
+    let mode = *state().mode.lock().unwrap();
+    let icon_cp = *state().notif_icon.lock().unwrap() as u16;
 
     let mut ps = PAINTSTRUCT::default();
     let hdc: HDC = BeginPaint(hwnd, &mut ps);
@@ -606,7 +653,7 @@ unsafe fn paint_notification(hwnd: HWND) {
         let _ = DeleteObject(hf);
 
         // Map raw byte to (bar_fill_pct, label).
-        let (pct, level_lbl) = keyboard_level_info(OSD_KBL_LEVEL.load(Ordering::Relaxed));
+        let (pct, level_lbl) = keyboard_level_info(*state().kbl_level.lock().unwrap());
 
         // "Keyboard Light" label — font -19, muted-gray, centred.
         SetTextColor(hdc, TEXT2_CLR);
@@ -677,8 +724,8 @@ unsafe fn paint_notification(hwnd: HWND) {
 /// GDI object management. All created GDI objects (brushes, fonts) are deleted
 /// and the world transform is reset to identity before returning.
 unsafe fn paint_brightness(hwnd: HWND) {
-    let level = OSD_LEVEL.load(Ordering::Relaxed) as i32;
-    let spin_frame = OSD_SPIN_FRAME.load(Ordering::Relaxed);
+    let level = *state().level.lock().unwrap() as i32;
+    let spin_frame = *state().spin_frame.lock().unwrap();
     // Map frame 0-30 to degrees 0-360; frame 0 = no transform (icon at rest).
     let spin_deg = (spin_frame as i32 * 360) / SPIN_TOTAL_FRAMES as i32;
 
@@ -904,39 +951,39 @@ mod tests {
 
     #[test]
     fn test_atomic_initial_hwnd() {
-        assert_eq!(OSD_HWND.load(Ordering::Relaxed), 0);
+        assert_eq!(*state().hwnd.lock().unwrap(), 0);
     }
 
     #[test]
     fn test_atomic_initial_alpha() {
-        assert_eq!(OSD_ALPHA.load(Ordering::Relaxed), 0);
+        assert_eq!(*state().alpha.lock().unwrap(), 0);
     }
 
     #[test]
     fn test_atomic_initial_anim_phase() {
         // 0 = hidden
-        assert_eq!(OSD_ANIM_PHASE.load(Ordering::Relaxed), 0);
+        assert_eq!(*state().anim_phase.lock().unwrap(), 0);
     }
 
     #[test]
     fn test_atomic_initial_spin_frame() {
-        assert_eq!(OSD_SPIN_FRAME.load(Ordering::Relaxed), 0);
+        assert_eq!(*state().spin_frame.lock().unwrap(), 0);
     }
 
     #[test]
     fn test_atomic_initial_osd_mode() {
         // 0 = brightness mode
-        assert_eq!(OSD_MODE.load(Ordering::Relaxed), 0);
+        assert_eq!(*state().mode.lock().unwrap(), 0);
     }
 
     #[test]
     fn test_atomic_initial_mic_muted() {
-        assert!(!MIC_MUTED.load(Ordering::Relaxed));
+        assert!(!*state().mic_muted.lock().unwrap());
     }
 
     #[test]
     fn test_default_level_and_kbl() {
-        assert_eq!(OSD_LEVEL.load(Ordering::Relaxed), 50);
-        assert_eq!(OSD_KBL_LEVEL.load(Ordering::Relaxed), 0xFF);
+        assert_eq!(*state().level.lock().unwrap(), 50);
+        assert_eq!(*state().kbl_level.lock().unwrap(), 0xFF);
     }
 }
