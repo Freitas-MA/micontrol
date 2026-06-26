@@ -46,7 +46,7 @@ jobs:
           Write-Host "Version verified: $pkgVersion"
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
