@@ -11,7 +11,7 @@
  * New code should import the focused hooks directly.
  */
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppSettings } from '../types/settings';
 import { useAiAnalysis } from './useAiAnalysis';
@@ -121,7 +121,7 @@ export function useSettings() {
   const telemetry = useTelemetryConsent();
 
   /** Persist non-secret settings to localStorage and API key to credential store. */
-  async function saveSettings(updated: AppSettings): Promise<void> {
+  const saveSettings = useCallback(async (updated: AppSettings): Promise<void> => {
     setSettingsState(updated);
     persistSettings(updated);
     if (updated.openai_api_key) {
@@ -137,21 +137,24 @@ export function useSettings() {
         // Ignore — key may not exist yet
       }
     }
-  }
+  }, []);
 
-  function updateKey<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    if (key === 'openai_api_key') {
-      // Update locally immediately for responsiveness; background-save to credential store
-      const updated = { ...settings, [key]: value };
-      setSettingsState(updated);
-      persistSettings(updated);
-      saveSettings(updated).catch((err) =>
-        console.error('[settings] Failed to save API key:', err),
-      );
-    } else {
-      void saveSettings({ ...settings, [key]: value });
-    }
-  }
+  const updateKey = useCallback(
+    <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+      if (key === 'openai_api_key') {
+        // Update locally immediately for responsiveness; background-save to credential store
+        const updated = { ...settings, [key]: value };
+        setSettingsState(updated);
+        persistSettings(updated);
+        saveSettings(updated).catch((err) =>
+          console.error('[settings] Failed to save API key:', err),
+        );
+      } else {
+        void saveSettings({ ...settings, [key]: value });
+      }
+    },
+    [settings, saveSettings],
+  );
 
   // On mount: migrate legacy localStorage key if present, then load from credential store
   useEffect(() => {
@@ -171,24 +174,30 @@ export function useSettings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function setOnboardingCompleted(completed: boolean): void {
-    updateKey('onboardingCompleted', completed);
-  }
+  const setOnboardingCompleted = useCallback(
+    (completed: boolean): void => {
+      updateKey('onboardingCompleted', completed);
+    },
+    [updateKey],
+  );
 
-  return {
-    settings,
-    saveSettings,
-    updateKey,
-    setOnboardingCompleted,
-    // AI analysis (delegated to useAiAnalysis)
-    analyzeSystem: ai.analyzeSystem,
-    analyzeWithLogs: ai.analyzeWithLogs,
-    testConnection: ai.testConnection,
-    isConfigured: Boolean(settings.openai_api_key.trim()),
-    // Telemetry consent (delegated to useTelemetryConsent)
-    getTelemetryConsent: telemetry.getTelemetryConsent,
-    setTelemetryConsent: telemetry.setTelemetryConsent,
-    revokeTelemetryConsent: telemetry.revokeTelemetryConsent,
-    checkTelemetryConsent: telemetry.checkTelemetryConsent,
-  };
+  return useMemo(
+    () => ({
+      settings,
+      saveSettings,
+      updateKey,
+      setOnboardingCompleted,
+      // AI analysis (delegated to useAiAnalysis)
+      analyzeSystem: ai.analyzeSystem,
+      analyzeWithLogs: ai.analyzeWithLogs,
+      testConnection: ai.testConnection,
+      isConfigured: Boolean(settings.openai_api_key.trim()),
+      // Telemetry consent (delegated to useTelemetryConsent)
+      getTelemetryConsent: telemetry.getTelemetryConsent,
+      setTelemetryConsent: telemetry.setTelemetryConsent,
+      revokeTelemetryConsent: telemetry.revokeTelemetryConsent,
+      checkTelemetryConsent: telemetry.checkTelemetryConsent,
+    }),
+    [settings, ai, telemetry, saveSettings, updateKey, setOnboardingCompleted],
+  );
 }

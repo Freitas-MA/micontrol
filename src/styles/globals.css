@@ -353,6 +353,9 @@ body {
   -webkit-backdrop-filter: var(--blur);
   border-right: 1px solid var(--border);
   box-shadow: var(--shadow-glass);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
   transition:
     background var(--t-slow) var(--ease),
     border-color var(--t-slow) var(--ease);

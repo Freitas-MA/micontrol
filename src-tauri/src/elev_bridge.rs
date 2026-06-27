@@ -118,8 +118,7 @@ pub async fn run_elevated(cmd: &'static str, args: Value) -> Result<Value, Strin
         // was registered during `cargo tauri dev` and points to the debug exe.
         let healed = tokio::task::spawn_blocking(ensure_task_correct_path)
             .await
-            .map_err(|e| format!("task heal task panicked: {e}"))?
-            || false;
+            .map_err(|e| format!("task heal task panicked: {e}"))?;
 
         if healed {
             // Retry the task after healing.
@@ -542,10 +541,9 @@ fn ensure_task_correct_path() -> bool {
             // Try 2: elevated schtasks via UAC prompt
             log::info!("Non-elevated schtasks failed, trying UAC elevation...");
             let xml_path_owned = xml_str.clone();
-            let uac_result = std::thread::spawn(move || run_schtasks_elevated(&xml_path_owned))
+            std::thread::spawn(move || run_schtasks_elevated(&xml_path_owned))
                 .join()
-                .unwrap_or(false);
-            uac_result
+                .unwrap_or(false)
         }
     };
 

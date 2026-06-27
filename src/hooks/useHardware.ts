@@ -121,17 +121,22 @@ export function useHardware() {
 
   const slowPoll = useCallback(async () => {
     try {
-      const [batteryResult, displayResult, touchpadResult] = await Promise.all([
-        invoke<BatteryInfo>('get_battery_info'),
-        invoke<DisplayInfo>('get_display_info'),
-        invoke<TouchpadInfo>('get_touchpad_info'),
-      ]);
+      const [batteryResult, displayResult, touchpadResult, perfMode, chargeThreshold] =
+        await Promise.all([
+          invoke<BatteryInfo>('get_battery_info'),
+          invoke<DisplayInfo>('get_display_info'),
+          invoke<TouchpadInfo>('get_touchpad_info'),
+          invoke<PerformanceMode>('get_performance_mode'),
+          invoke<number>('get_charging_threshold'),
+        ]);
       if (batteryResult !== null) setBattery(batteryResult);
       if (displayResult !== null) setDisplay(displayResult);
       // Only update touchpad from poll when no user write is in flight.
       if (touchpadResult !== null && Date.now() >= touchpadDirtyUntil.current) {
         setTouchpad(touchpadResult);
       }
+      if (perfMode) setPerformanceModeState(perfMode);
+      setChargingThresholdState(chargeThreshold);
       setError(null);
     } catch (e) {
       console.error('Slow poll failed:', e);
@@ -157,19 +162,30 @@ export function useHardware() {
       setLoading(true);
       const doInitialLoad = async () => {
         try {
-          const [fanResult, systemResult, batteryResult, displayResult, touchpadResult] =
-            await Promise.all([
-              invoke<FanInfo>('get_fan_info'),
-              invoke<SystemInfo>('get_system_info'),
-              invoke<BatteryInfo>('get_battery_info'),
-              invoke<DisplayInfo>('get_display_info'),
-              invoke<TouchpadInfo>('get_touchpad_info'),
-            ]);
+          const [
+            fanResult,
+            systemResult,
+            batteryResult,
+            displayResult,
+            touchpadResult,
+            perfMode,
+            chargeThreshold,
+          ] = await Promise.all([
+            invoke<FanInfo>('get_fan_info'),
+            invoke<SystemInfo>('get_system_info'),
+            invoke<BatteryInfo>('get_battery_info'),
+            invoke<DisplayInfo>('get_display_info'),
+            invoke<TouchpadInfo>('get_touchpad_info'),
+            invoke<PerformanceMode>('get_performance_mode'),
+            invoke<number>('get_charging_threshold'),
+          ]);
           setFan(fanResult);
           setSystemInfo(systemResult);
           if (batteryResult !== null) setBattery(batteryResult);
           if (displayResult !== null) setDisplay(displayResult);
           if (touchpadResult !== null) setTouchpad(touchpadResult);
+          if (perfMode) setPerformanceModeState(perfMode);
+          setChargingThresholdState(chargeThreshold);
           setError(null);
         } catch (e) {
           console.error('Initial hardware load failed:', e);

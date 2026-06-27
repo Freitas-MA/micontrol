@@ -199,11 +199,18 @@ pub fn check_sentry_consent() -> bool {
     };
     match entry.get_password() {
         Ok(val) => {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&val) {
-                parsed["value"].as_str() == Some("granted")
-            } else {
-                false
+            // Handle plain string format (current — stored by setTelemetryConsent)
+            if val == "granted" {
+                return true;
             }
+            if val == "denied" {
+                return false;
+            }
+            // Handle legacy JSON format (backwards compatibility)
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&val) {
+                return parsed["value"].as_str() == Some("granted");
+            }
+            false
         }
         Err(_) => false,
     }
