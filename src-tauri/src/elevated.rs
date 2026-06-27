@@ -491,22 +491,67 @@ fn result_path_for_request(request_id: &str) -> PathBuf {
 }
 
 fn select_pending_command(
-    _dir: &std::path::Path,
+    dir: &std::path::Path,
     wanted: Option<&str>,
 ) -> Result<PendingCommand, String> {
-    let request_id = wanted.ok_or_else(|| "Missing --request-id argument".to_string())?;
-
-    let cmd_path = cmd_path_for_request(request_id);
-    if !cmd_path.exists() {
-        return Err(format!(
-            "request-specific command file not found for request_id={request_id}"
-        ));
+    // Fast path: explicit --request-id from UAC fallback launch.
+    if let Some(request_id) = wanted {
+        let cmd_path = cmd_path_for_request(request_id);
+        if !cmd_path.exists() {
+            return Err(format!(
+                "request-specific command file not found for request_id={request_id}"
+            ));
+        }
+        return Ok(PendingCommand {
+            request_id: request_id.to_string(),
+            result_path: result_path_for_request(request_id),
+            cmd_path,
+        });
     }
-    Ok(PendingCommand {
-        request_id: request_id.to_string(),
-        result_path: result_path_for_request(request_id),
-        cmd_path,
-    })
+
+    // Fallback: no --request-id (scheduled task path). Scan the directory for
+    // the most recent `elev_cmd_*.json` file that doesn't have a matching
+    // `elev_result_*.json` yet.
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("Cannot read elev dir: {e}"))?;
+
+    let mut best: Option<(std::time::SystemTime, String)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("elev_cmd_") || !name.ends_with(".json") {
+            continue;
+        }
+        // Extract request_id from filename: elev_cmd_<id>.json
+        let request_id = &name["elev_cmd_".len()..name.len() - ".json".len()];
+
+        // Skip if a result already exists for this request (already processed)
+        let result_path = result_path_for_request(request_id);
+        if result_path.exists() {
+            continue;
+        }
+
+        // Pick the newest file by modification time
+        let mtime = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(std::time::UNIX_EPOCH);
+
+        if best.as_ref().is_none_or(|(t, _)| mtime > *t) {
+            best = Some((mtime, request_id.to_string()));
+        }
+    }
+
+    match best {
+        Some((_, request_id)) => Ok(PendingCommand {
+            request_id: request_id.clone(),
+            cmd_path: cmd_path_for_request(&request_id),
+            result_path: result_path_for_request(&request_id),
+        }),
+        None => Err("No pending elevated command file found".to_string()),
+    }
 }
 
 #[cfg(test)]
