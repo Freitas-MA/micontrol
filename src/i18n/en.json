@@ -564,6 +564,7 @@
     "apiKeyHint": "Your OpenAI API key (starts with sk-). Never shared outside your device.",
     "showKey": "Show key",
     "hideKey": "Hide key",
+    "keyIsSet": "API key is set",
     "baseUrl": "API Base URL",
     "baseUrlHint": "Change to use a custom provider (Ollama, Azure OpenAI, LM Studio, etc.)",
     "model": "Model",

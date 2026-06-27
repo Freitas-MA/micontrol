@@ -100,27 +100,35 @@ pub fn list_cast_devices() -> HardwareResult<Vec<CastDevice>> {
 #[cfg(windows)]
 pub fn start_casting(device_id: &str) -> HardwareResult<CastResult> {
     use std::os::windows::process::CommandExt;
-    use windows::core::HSTRING;
-    use windows::Media::Casting::CastingDevice;
 
-    log::info!("[screen_cast] Starting cast to device: {device_id}");
+    log::info!("[screen_cast] Starting cast, device_id: {device_id:?}");
 
-    // Validate the device ID by retrieving the CastingDevice via WinRT
-    let from_id_op = CastingDevice::FromIdAsync(&HSTRING::from(device_id))
-        .map_err(|e| HardwareError::Cast(format!("FromIdAsync failed: {e}")))?;
+    // If a specific device ID is provided, validate it via WinRT CastingDevice.
+    // Otherwise (empty string), just open the Windows Connect panel directly.
+    if !device_id.is_empty() {
+        use windows::core::HSTRING;
+        use windows::Media::Casting::CastingDevice;
 
-    let casting_device = from_id_op
-        .get()
-        .map_err(|e| HardwareError::Cast(format!("Failed to get casting device: {e}")))?;
+        log::info!("[screen_cast] Validating casting device: {device_id}");
 
-    let friendly_name = casting_device
-        .FriendlyName()
-        .map(|n| n.to_string())
-        .unwrap_or_default();
+        let from_id_op = CastingDevice::FromIdAsync(&HSTRING::from(device_id))
+            .map_err(|e| HardwareError::Cast(format!("FromIdAsync failed: {e}")))?;
 
-    log::info!("[screen_cast] Validated casting device: {friendly_name} (id={device_id})");
+        let casting_device = from_id_op
+            .get()
+            .map_err(|e| HardwareError::Cast(format!("Failed to get casting device: {e}")))?;
 
-    // Open the Windows Connect panel for the user to confirm casting
+        let friendly_name = casting_device
+            .FriendlyName()
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+
+        log::info!("[screen_cast] Validated casting device: {friendly_name} (id={device_id})");
+    } else {
+        log::info!("[screen_cast] No device ID provided — opening Connect panel directly");
+    }
+
+    // Open the Windows Connect panel for the user to select a device and cast
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     let mut cmd = std::process::Command::new("cmd");
     cmd.args(["/c", "start", "ms-settings-connectabledevices:project"]);
@@ -133,9 +141,7 @@ pub fn start_casting(device_id: &str) -> HardwareResult<CastResult> {
     Ok(CastResult {
         success,
         message: if success {
-            format!(
-                "Connect panel opened for {friendly_name}. Select your device to start casting."
-            )
+            "Connect panel opened. Select your device to start casting.".into()
         } else {
             "Failed to open Connect panel.".into()
         },

@@ -172,8 +172,12 @@ pub fn set_touchpad_haptics(enabled: bool) -> HardwareResult<()> {
         let intensity = read_touchpad_registry()
             .map(|i| i.haptics_intensity)
             .unwrap_or(HapticsIntensity::Medium);
-        send_haptics_hid_report(enabled, &intensity)
-            .unwrap_or_else(|e| log::warn!("[touchpad] haptics HID report failed: {e} — registry updated but hardware may not reflect change"));
+        // Propagate HID error to frontend — registry is already updated, but
+        // the user needs to know the hardware didn't accept the change.
+        if let Err(e) = send_haptics_hid_report(enabled, &intensity) {
+            log::warn!("[touchpad] haptics HID report failed: {e} — registry updated but hardware may not reflect change");
+            return Err(e);
+        }
     }
     Ok(())
 }
@@ -193,8 +197,12 @@ pub fn set_touchpad_haptics_intensity(intensity: HapticsIntensity) -> HardwareRe
         let enabled = read_touchpad_registry()
             .map(|i| i.haptics_enabled)
             .unwrap_or(true);
-        send_haptics_hid_report(enabled, &intensity)
-            .unwrap_or_else(|e| log::warn!("[touchpad] intensity HID report failed: {e} — registry updated but hardware may not reflect change"));
+        // Propagate HID error to frontend — registry is already updated, but
+        // the user needs to know the hardware didn't accept the change.
+        if let Err(e) = send_haptics_hid_report(enabled, &intensity) {
+            log::warn!("[touchpad] intensity HID report failed: {e} — registry updated but hardware may not reflect change");
+            return Err(e);
+        }
     }
     Ok(())
 }

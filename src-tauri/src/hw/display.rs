@@ -255,6 +255,7 @@ fn get_ambient_lux() -> Option<f32> {
 /// -1 = display is on
 ///  1 = display is going to power-off
 ///  2 = display is off
+///  0 = some systems return this when the display is on (not documented but observed)
 ///
 /// On non-Windows or if the call fails, we assume the display is on.
 #[cfg(windows)]
@@ -264,8 +265,8 @@ fn is_display_on() -> bool {
     const SM_MONITORPOWER: i32 = 112;
     // SAFETY: GetSystemMetrics is a thread-safe Win32 API call.
     let val = unsafe { GetSystemMetrics(SYSTEM_METRICS_INDEX(SM_MONITORPOWER)) };
-    // -1 means the display is on; anything else means off or transitioning.
-    val == -1
+    // -1 and 0 mean the display is on; 1 means transitioning to off; 2 means off.
+    val == -1 || val == 0
 }
 
 #[cfg(not(windows))]
@@ -277,6 +278,7 @@ fn is_display_on() -> bool {
 /// adjusts screen brightness according to the user-configured sensitivity curve.
 /// Config changes are picked up automatically on each iteration.
 pub async fn adaptive_brightness_loop() {
+    log::info!("[adaptive_brightness] loop started");
     let mut smoothed: Option<f32> = None;
     let mut no_sensor_warned = false;
     // Last value we applied so we can detect external changes (Fn keys, OS).
@@ -318,8 +320,18 @@ pub async fn adaptive_brightness_loop() {
             smoothed = None;
             last_set = None;
             adaptbright_suppressed = false;
+            log::debug!("[adaptive_brightness] disabled — skipping iteration");
             continue;
         }
+
+        log::debug!(
+            "[adaptive_brightness] enabled: min={} max={} sens={} smooth={} actual_brightness={:?}",
+            cfg.min_brightness,
+            cfg.max_brightness,
+            cfg.sensitivity,
+            cfg.smoothing,
+            brightness_actual
+        );
 
         // Ensure Windows' own ADAPTBRIGHT (power-plan adaptive brightness) is
         // off — if both run simultaneously they fight over the backlight,
@@ -425,6 +437,9 @@ pub async fn adaptive_brightness_loop() {
             continue;
         }
         let set_value = value;
+        log::info!(
+            "[adaptive_brightness] setting brightness to {set_value}% (lux={lux:.0}, target={target:.1}, smoothed={next:.1})"
+        );
         match tokio::task::spawn_blocking(move || set_brightness(set_value)).await {
             Ok(Ok(())) => {
                 last_set = Some(set_value);

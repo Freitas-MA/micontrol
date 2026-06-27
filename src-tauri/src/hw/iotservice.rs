@@ -31,7 +31,7 @@
 use crate::hw::errors::{HardwareError, HardwareResult};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -627,8 +627,11 @@ fn send_ipc_message(dst_id: u16, msg_type: u32, payload: &[u8]) -> Result<Vec<u8
             }
 
             let mut payload_buf = vec![0u8; payload_len];
-            pipe.read_exact(&mut payload_buf)
-                .context("Read IPC response payload")?;
+            // Use the same timeout-protected read as the header to prevent
+            // indefinite blocking if IoTService sends a header but never
+            // delivers the full payload.
+            read_exact_timeout(&mut pipe, &mut payload_buf, Duration::from_secs(5))
+                .context("Read IPC response payload (with timeout)")?;
 
             Ok(payload_buf)
         })
@@ -1069,6 +1072,24 @@ pub struct IotDeviceInfo {
 /// specific query fails, the corresponding field is `None`.
 pub fn get_device_info() -> IotDeviceInfo {
     let pipe_available = is_available();
+    log::info!("[iot] get_device_info: pipe_available={pipe_available}");
+
+    // Short-circuit: if the pipe is not available, return immediately with all
+    // fields as None. This prevents ~2 minutes of retry timeouts when the
+    // IoTService is not running.
+    if !pipe_available {
+        log::info!("[iot] Pipe not available — returning empty device info");
+        return IotDeviceInfo {
+            pipe_available: false,
+            model: None,
+            fw_version: None,
+            bind_status: None,
+            device_id: None,
+            device_status: None,
+            wifi_status: None,
+            wifi_network_count: None,
+        };
+    }
 
     IotDeviceInfo {
         pipe_available,

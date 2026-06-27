@@ -138,6 +138,21 @@ export default function AiConfigForm({ settings, onUpdate, onTestConnection }: A
             {showKey ? '🙈' : '👁'}
           </button>
         </div>
+        {draft.openai_api_key && (
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--color-success, #4ade80)',
+              marginTop: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <span>✓</span>
+            <span>{t('settings.keyIsSet')}</span>
+          </div>
+        )}
       </FieldRow>
 
       {/* Base URL */}

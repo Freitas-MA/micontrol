@@ -31,7 +31,22 @@ pub struct WifiStatus {
 }
 
 /// Scan for available WiFi networks using netsh wlan.
+///
+/// Triggers a fresh WiFi scan before listing networks to ensure we get
+/// the most up-to-date list of visible networks, not stale cached results.
 pub fn scan_networks() -> HardwareResult<Vec<WifiNetwork>> {
+    // Trigger a fresh WiFi scan first. This is async on the Windows side,
+    // so we add a short delay before querying the results.
+    #[cfg(windows)]
+    {
+        let mut scan_cmd = Command::new("netsh");
+        scan_cmd.args(["wlan", "scan"]);
+        scan_cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = scan_cmd.output(); // Best-effort, ignore errors
+                                   // Give the WiFi adapter time to complete the scan
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
+
     let mut cmd = Command::new("netsh");
     cmd.args(["wlan", "show", "networks", "mode=bssid"]);
     #[cfg(windows)]
@@ -208,10 +223,15 @@ fn parse_scan_output(output: &str) -> HardwareResult<Vec<WifiNetwork>> {
                 });
             }
             // Start new network
-            let ssid = line.trim_start_matches("SSID").trim();
-            let ssid = ssid.trim_matches(':').trim();
+            // netsh output format: "SSID 1 : MyNetwork" or "SSID 2 :"
+            // We need to extract just the SSID name after the colon
+            let ssid = if let Some(colon_pos) = line.find(':') {
+                line[colon_pos + 1..].trim().to_string()
+            } else {
+                String::new()
+            };
             if !ssid.is_empty() {
-                current_ssid = Some(ssid.to_string());
+                current_ssid = Some(ssid);
                 current_signal = 0;
                 current_security = String::new();
             }
