@@ -47,7 +47,7 @@ const FUN2_SENSOR: u16 = 0x1000;
 const SGER_SUCCESS: u16 = 0x8000;
 
 /// WMAA response buffer (30 bytes from WMI output).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WmaaResponse {
     pub sger: u16,
     pub futr: u16,
@@ -442,6 +442,23 @@ mod imp {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// WORKING FORM — DO NOT MODIFY
+//
+// wmi_read and wmi_write are the core WMI MiInterface callers. They use
+// wmi_cache::with_wmi() which holds a RefCell borrow for the duration of
+// the WMI call. Callers MUST NOT nest these calls inside another
+// with_wmi() closure — doing so will panic with "RefCell already borrowed".
+//
+// The WMAA buffer format:
+//   FUN1=0xFA00 (read) / 0xFB00 (write)
+//   FUN2: sub-command group (0x0800=EC, 0x0A00=MI_INFO, 0x0C00=MISC, 0x1000=SENSOR)
+//   FUN3: parameter/sub-command ID
+//   FUN4: additional data (write only)
+//
+// Response: SGER=0x8000 means success. FRD0/FRD1 contain the result data.
+// ═══════════════════════════════════════════════════════════════════════
+
 /// Read a WMAA register via WMI MiInterface.
 #[cfg(windows)]
 pub fn wmi_read(fun2: u16, fun3: u16) -> HardwareResult<WmaaResponse> {
@@ -457,6 +474,10 @@ pub fn wmi_write(fun2: u16, fun3: u16, fun4: u32) -> HardwareResult<WmaaResponse
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /// Read the current performance mode from the EC.
+///
+/// WORKING FORM — DO NOT MODIFY: Uses wmi_read(FUN2_EC_FUNC=0x0800, FUN3=0).
+/// This reads the EC performance mode via the ACPI WMAA method through
+/// the MICommonInterface WMI class. Does NOT require IoTDriver.
 pub fn get_performance_mode() -> HardwareResult<EcPerformanceMode> {
     #[cfg(windows)]
     {
@@ -477,6 +498,11 @@ pub fn get_performance_mode() -> HardwareResult<EcPerformanceMode> {
 }
 
 /// Set the performance mode via the EC.
+///
+/// WORKING FORM — DO NOT MODIFY: Uses wmi_write(FUN2_EC_FUNC=0x0800, mode, 0).
+/// This sets the EC performance mode via the ACPI WMAA method through
+/// the MICommonInterface WMI class. Does NOT require IoTDriver.
+/// Modes: Performance=5, Balanced=6, Quiet=7, SuperQuiet=8, UltraPerformance=9, Extreme=0x0A
 pub fn set_performance_mode(mode: EcPerformanceMode) -> HardwareResult<()> {
     #[cfg(windows)]
     {
@@ -524,6 +550,9 @@ pub fn read_sensor_data() -> HardwareResult<EcSensorData> {
 }
 
 /// Read the battery state of health (0-100).
+///
+/// WORKING FORM — DO NOT MODIFY: Uses wmi_read(FUN2_SENSOR=0x1000, FUN3=0x01).
+/// Reads battery SoH via ACPI WMAA method. Does NOT require IoTDriver.
 pub fn read_battery_health() -> HardwareResult<u32> {
     #[cfg(windows)]
     {
@@ -543,6 +572,11 @@ pub fn read_battery_health() -> HardwareResult<u32> {
 }
 
 /// Read the AC adapter power in watts.
+///
+/// WORKING FORM — DO NOT MODIFY: Uses wmi_read(FUN2_SENSOR=0x1000, FUN3=0x06).
+/// Reads AC adapter power via ACPI WMAA method. Does NOT require IoTDriver.
+/// IMPORTANT: This function calls wmi_cache::with_wmi() internally, so it
+/// MUST NOT be called from inside another with_wmi() closure.
 pub fn read_adapter_power() -> HardwareResult<u32> {
     #[cfg(windows)]
     {

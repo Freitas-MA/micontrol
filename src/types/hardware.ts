@@ -54,6 +54,8 @@ export interface BatteryInfo {
   full_capacity_mwh: number;
   manufacturer: string;
   device_name: string;
+  serial_number: string;
+  chemistry: string;
   temperature_celsius: number | null;
   time_remaining_minutes: number | null;
   /** Estimated minutes until fully charged. Null when not charging. */
@@ -307,3 +309,83 @@ export type IotEvent =
   | { kind: 'power'; event: PowerEvent }
   | { kind: 'ec'; event_func: number; event_value: number }
   | { kind: 'laptop_status'; status: LaptopStatus };
+
+// ── WMAA / WMI MiInterface types (elevated bridge) ──────────────────────────
+//
+// These types match the Rust structs in `src-tauri/src/hw/wmi_ec.rs`.
+// All WMAA commands require admin privileges and are dispatched through
+// the elevated bridge.
+
+/** Raw WMAA response buffer (30 bytes from WMI output). */
+export interface WmaaResponse {
+  sger: number;
+  futr: number;
+  frd0: number;
+  frd1: number;
+  frd2: number;
+  frd3: number;
+  raw: number[];
+}
+
+/** EC performance mode IDs (FUN3 for FUN2=0x0800 write commands). */
+export type EcPerformanceMode =
+  | 'Performance'
+  | 'Balanced'
+  | 'Quiet'
+  | 'SuperQuiet'
+  | 'UltraPerformance'
+  | 'Extreme';
+
+/** Numeric performance mode values for `wmi_ec_set_performance_mode`. */
+export const EC_PERF_MODE = {
+  Performance: 5,
+  Balanced: 6,
+  Quiet: 7,
+  SuperQuiet: 8,
+  UltraPerformance: 9,
+  Extreme: 10,
+} as const;
+
+/** Sensor data read from the EC via WMI in a single call. */
+export interface EcSensorData {
+  battery_health: number;
+  adapter_power: number;
+  mi_usage_type: number;
+  wmid_type: number;
+  lid_open_type: number;
+  removable_type: number;
+  current_mode: number;
+}
+
+// ── HQWmiCommonInterface (BIOS control via WMI) ────────────────────────────
+//
+// These types match the Rust structs in `src-tauri/src/hw/hq_wmi.rs`.
+// All methods take a String `req` parameter and return a String `ret`.
+
+/** Response from an HQWmiCommonInterface method call. */
+export interface HqWmiResponse {
+  /** The method that was called. */
+  method: string;
+  /** The request string sent to the method. */
+  req: string;
+  /** The return string from the method. */
+  ret: string;
+  /** Whether the call succeeded. */
+  success: boolean;
+}
+
+// ── Thermal Zone (ACPI temperature) ────────────────────────────────────────
+//
+// These types match the Rust structs in `src-tauri/src/hw/thermal.rs`.
+
+/** Thermal zone information from ACPI. */
+export interface ThermalZoneInfo {
+  /** ACPI instance name (e.g., "ACPI\ThermalZone\TZ00_0"). */
+  instance_name: string;
+  /** Current temperature in Celsius. */
+  current_temp_celsius: number;
+  /** Critical trip point in Celsius (system shutdown threshold). */
+  critical_trip_celsius: number | null;
+  /** Whether this thermal zone is active. */
+  active: boolean;
+}

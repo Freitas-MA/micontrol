@@ -206,6 +206,10 @@ pub enum HotkeyAction {
     /// Immediately switch to the named performance mode.
     /// `mode` must be a snake_case variant of `PerformanceMode`, e.g. "turbo".
     SetPerformanceMode { mode: String },
+    /// Cycle through the given performance modes on each press.
+    /// `modes` is a list of snake_case mode names, e.g. ["balance", "turbo"].
+    /// The next mode after the last is the first.
+    CyclePerformanceMode { modes: Vec<String> },
     /// Toggle AI adaptive brightness on or off.
     ToggleAiBrightness,
     /// Inject a media/system key.
@@ -636,21 +640,37 @@ fn hook_thread_main() {
     // BEFORE WH_KEYBOARD_LL or Raw Input, so it opens Settings instead of
     // triggering our handler.  RegisterHotKey claims the VK at the Win32 level:
     // Windows posts WM_HOTKEY to our window and skips the Shell handler entirely.
+    //
+    // We also register the Win+Shift+F23 sequence (id=104) because some firmware
+    // revisions emit that raw sequence instead of synthesising VK 0xC3.
     {
-        use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, HOT_KEY_MODIFIERS};
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            RegisterHotKey, HOT_KEY_MODIFIERS, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+        };
+        // Standard VK registrations (AI key, Xiaomi key, Copilot key).
         for (id, vk) in [
             (101i32, VK_AI_KEY),
             (102i32, VK_XIAOMI_KEY),
             (103i32, VK_COPILOT),
         ] {
-            // SAFETY: RegisterHotKey takes a valid HWND (created via CreateWindowExW), a unique ID, and a VK code. The HWND is alive for the duration of the hook thread.
-            match unsafe { RegisterHotKey(hwnd, id, HOT_KEY_MODIFIERS(0), vk) } {
+            // SAFETY: RegisterHotKey takes a valid HWND (created via
+            // CreateWindowExW), a unique ID, and a VK code. The HWND is alive
+            // for the duration of the hook thread.
+            let mods = HOT_KEY_MODIFIERS(MOD_NOREPEAT.0);
+            match unsafe { RegisterHotKey(hwnd, id, mods, vk) } {
                 Ok(()) => log::info!("[hotkeys] RegisterHotKey VK={:#04X} id={id} OK", vk),
                 Err(e) => log::warn!(
                     "[hotkeys] RegisterHotKey VK={:#04X} id={id} failed: {e}",
                     vk
                 ),
             }
+        }
+        // Also register Win+Shift+F23 (alternate Copilot key path on some boards).
+        // VK_F23 = 0x86.  MOD_WIN | MOD_SHIFT | MOD_NOREPEAT.
+        let copilot_alt_mods = HOT_KEY_MODIFIERS(MOD_WIN.0 | MOD_SHIFT.0 | MOD_NOREPEAT.0);
+        match unsafe { RegisterHotKey(hwnd, 104i32, copilot_alt_mods, 0x86) } {
+            Ok(()) => log::info!("[hotkeys] RegisterHotKey Win+Shift+F23 id=104 OK"),
+            Err(e) => log::warn!("[hotkeys] RegisterHotKey Win+Shift+F23 id=104 failed: {e}"),
         }
     }
 
@@ -894,10 +914,11 @@ unsafe fn handle_keyboard_raw_input(lparam: isize) {
 /// Windows Shell cannot intercept them (e.g. Copilot opening Settings).
 /// Both detect-mode recording and action dispatch happen here.
 fn handle_hotkey_message(id: i32) {
+    // id=104 is the Win+Shift+F23 alternate Copilot key path — treat as Copilot.
     let vk = match id {
         101 => VK_AI_KEY,
         102 => VK_XIAOMI_KEY,
-        103 => VK_COPILOT,
+        103 | 104 => VK_COPILOT,
         _ => return,
     };
     log::info!("[hotkeys] WM_HOTKEY id={id} VK={:#04X}", vk);
@@ -1500,10 +1521,56 @@ fn dispatch_action(action: &HotkeyAction) {
             let quoted = format!("\"{}\"", mode);
             match serde_json::from_str::<PerformanceMode>(&quoted) {
                 Ok(pm) => match crate::hw::performance::set_performance_mode(pm) {
-                    Ok(res) => log::info!("[hotkeys] SetPerformanceMode {:?}: {:?}", pm, res),
+                    Ok(res) => {
+                        log::info!("[hotkeys] SetPerformanceMode {:?}: {:?}", pm, res);
+                        crate::hw::osd::show_performance_osd(pm);
+                    }
                     Err(e) => log::warn!("[hotkeys] SetPerformanceMode {:?} failed: {e}", pm),
                 },
                 Err(_) => log::warn!("[hotkeys] SetPerformanceMode: unknown mode '{mode}'"),
+            }
+        }
+
+        HotkeyAction::CyclePerformanceMode { modes } => {
+            use crate::state::PerformanceMode;
+            if modes.is_empty() {
+                log::warn!("[hotkeys] CyclePerformanceMode: empty mode list");
+                return;
+            }
+            // Read current mode to determine where we are in the cycle.
+            let current =
+                crate::hw::performance::get_performance_mode().unwrap_or(PerformanceMode::Balance);
+            let current_str = serde_json::to_string(&current)
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_string();
+            // Find current position in the cycle list and advance.
+            let next_idx = modes
+                .iter()
+                .position(|m| *m == current_str)
+                .map(|i| (i + 1) % modes.len())
+                .unwrap_or(0);
+            let next_mode_str = &modes[next_idx];
+            let quoted = format!("\"{}\"", next_mode_str);
+            match serde_json::from_str::<PerformanceMode>(&quoted) {
+                Ok(pm) => match crate::hw::performance::set_performance_mode(pm) {
+                    Ok(res) => {
+                        log::info!(
+                            "[hotkeys] CyclePerformanceMode: {} → {} ({:?})",
+                            current_str,
+                            next_mode_str,
+                            res
+                        );
+                        crate::hw::osd::show_performance_osd(pm);
+                    }
+                    Err(e) => log::warn!(
+                        "[hotkeys] CyclePerformanceMode: set {} failed: {e}",
+                        next_mode_str
+                    ),
+                },
+                Err(_) => {
+                    log::warn!("[hotkeys] CyclePerformanceMode: unknown mode '{next_mode_str}'")
+                }
             }
         }
 
@@ -1594,6 +1661,31 @@ fn dispatch_action(action: &HotkeyAction) {
 }
 
 // ── WMI HID event listener ───────────────────────────────────────────────────
+
+/// Open a shell protocol URL (e.g. `ms-settings:`, `ms-project:`) via
+/// `ShellExecuteW`.  More reliable than synthetic Win+key combos for opening
+/// Windows system UI, because it bypasses UIPI restrictions on SendInput.
+#[cfg(windows)]
+fn shell_open(protocol: windows::core::PCWSTR) {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    // SAFETY: ShellExecuteW with a valid protocol string and "open" verb is a
+    // standard Win32 call. The HWND is null (no parent window). The protocol
+    // string is a valid PCWSTR pointing to a wide string literal.
+    unsafe {
+        let _ = ShellExecuteW(
+            None,
+            windows::core::w!("open"),
+            protocol,
+            None,
+            None,
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn shell_open(_protocol: &str) {}
 
 /// Send a Win+<key> keyboard combo via SendInput.
 /// `vk` is the virtual-key code of the letter key (e.g. 0x50 for P, 0x49 for I).
@@ -1959,15 +2051,20 @@ fn handle_hid_wmi_event(class_name: &str, class_idx: u32, active: bool, detail: 
             return;
         }
         ("HID_EVENT20", 0x01) => {
-            // Fn+F8: Project / display mode  →  Win+P
-            log::info!("[hotkeys] WMI Fn+F8 → Win+P (project)");
-            send_win_key_combo(0x50); // VK 'P'
+            // Fn+F8: Project / display mode.
+            // ShellExecuteW("ms-project:") opens the Cast/Project quick action
+            // directly — more reliable than synthetic Win+P which Explorer often
+            // ignores due to UIPI.
+            log::info!("[hotkeys] WMI Fn+F8 → Project (ms-project:)");
+            shell_open(windows::core::w!("ms-project:"));
             return;
         }
         ("HID_EVENT20", 0x1B) => {
-            // Fn+F9: Windows Settings  →  Win+I
-            log::info!("[hotkeys] WMI Fn+F9 → Win+I (settings)");
-            send_win_key_combo(0x49); // VK 'I'
+            // Fn+F9: Windows Settings.
+            // ShellExecuteW("ms-settings:") opens the Settings app directly —
+            // more reliable than synthetic Win+I.
+            log::info!("[hotkeys] WMI Fn+F9 → Settings (ms-settings:)");
+            shell_open(windows::core::w!("ms-settings:"));
             return;
         }
         _ => {}

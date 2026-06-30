@@ -140,3 +140,42 @@ git push origin main
 - **Build fails**: Check that all versions are synced (`npm run version:check`)
 - **Signing fails**: Verify the `TAURI_SIGNING_PRIVATE_KEY` secret is set correctly
 - **Release not created**: Ensure the workflow has `permissions: contents: write`
+
+## EC RAM Service (ecram_service.exe)
+
+MiControl includes a custom `IoTService.exe` replacement binary (`src-tauri/src/bin/ecram_service.rs`) that proxies ECRAM read/write IOCTLs to the Xiaomi `IoTDriver.sys` kernel driver. This binary is required for ECRAM access (IOT_STATUS, IOT_SENSORS, ECRAM sensor block).
+
+### Building
+
+The binary is built as part of the normal Tauri release build:
+
+```bash
+npm run tauri build
+```
+
+The resulting binary is at `src-tauri/target/release/ecram_service.exe`.
+
+### Deployment
+
+To deploy the custom IoTService.exe:
+
+1. Copy `ecram_service.exe` to the IoTDriver DriverStore directory:
+   ```
+   C:\Windows\System32\DriverStore\FileRepository\iotdriver.inf_amd64_*\IoTService.exe
+   ```
+2. Rename it to `IoTService.exe` (if not already named)
+3. Restart the IoTSvc service:
+   ```powershell
+   Restart-Service IoTSvc
+   ```
+
+### Security Notes
+
+- The binary **must** be named `IoTService.exe` — the driver validates the process name
+- The binary **must** be in the DriverStore directory — the driver validates the path
+- The driver only allows access to 3 hardcoded physical address ranges:
+  - `0xFE0B0F00` / 0x80 bytes (IOT_STATUS + IOT_SENSORS)
+  - `0xFE0B0AB8` / 0x08 bytes (small status region)
+  - `0xFE0B0E00` / 0x100 bytes (ECRAM sensor block)
+- ERAM (`0xFE0B0300`) and SMA2 (`0xFE0B0A00`) are **not accessible** — not in allowed ranges
+- See [RE_ANALYSIS_REPORT.md](./RE_ANALYSIS_REPORT.md) for complete details

@@ -13,6 +13,7 @@ pub mod ecram;
 pub mod errors;
 pub mod fan;
 pub mod hotkeys;
+pub mod hq_wmi;
 pub mod iotservice;
 pub mod mic;
 #[cfg(windows)]
@@ -22,6 +23,7 @@ pub mod processes;
 pub mod screen_cast;
 pub mod startup;
 pub mod system_info;
+pub mod thermal;
 pub mod touchpad;
 pub mod update;
 pub mod wifi;

@@ -1,4 +1,7 @@
-# IoT Shim Access Report
+# IoT Shim Access Report (LEGACY — superseded by RE_ANALYSIS_REPORT.md)
+
+> ⚠️ **DEPRECATED** — This report predates the full reverse engineering analysis.
+> For current findings, see [`../RE_ANALYSIS_REPORT.md`](../RE_ANALYSIS_REPORT.md) and [`../HARDWARE_INVESTIGATION.md`](../HARDWARE_INVESTIGATION.md).
 
 ## Scope
 
@@ -29,12 +32,12 @@ It also distinguishes adjacent IoT surfaces that exist in the platform but are n
 
 Accessible physical regions through this primitive:
 
-| Region | Address | Size | Status |
-|---|---:|---:|---|
-| ERAM | `0xFE0B0300` | `0x100` | accessible and partially decoded |
-| SMA2 | `0xFE0B0A00` | `0x100` | accessible, not decoded |
-| IoT status | `0xFE0B0F00` | `0x08` | accessible, not decoded |
-| IoT sensors | `0xFE0B0F08` | `0x78` | accessible, partially characterized |
+| Region      |      Address |    Size | Status                              |
+| ----------- | -----------: | ------: | ----------------------------------- |
+| ERAM        | `0xFE0B0300` | `0x100` | accessible and partially decoded    |
+| SMA2        | `0xFE0B0A00` | `0x100` | accessible, not decoded             |
+| IoT status  | `0xFE0B0F00` |  `0x08` | accessible, not decoded             |
+| IoT sensors | `0xFE0B0F08` |  `0x78` | accessible, partially characterized |
 
 Named-region shim entry point:
 
@@ -82,22 +85,22 @@ This makes the following end-to-end shim flow accessible today:
 
 These fields are available via `read_eram_map()` in [src-tauri/src/hw/ecram.rs](../src-tauri/src/hw/ecram.rs):
 
-| Offset | Field | Meaning |
-|---:|---|---|
-| `0x03` | `cpu_temp_c` | CPU temperature |
-| `0x04..0x05` | `fan_rpm` | fan RPM |
-| `0x06..0x07` | `fan2_rpm` | secondary fan RPM |
-| `0x0A` | `cpu_power_w` | CPU power |
-| `0x40` | `perf_profile` | performance profile byte |
-| `0x42` | `tdp_w` | TDP-related byte |
-| `0x80` | `ac_flags` | AC flags byte |
-| `0x80 bit0` | `ac_connected` | AC present |
-| `0x81` | `ac_adapter_w` / `ADPW` | AC adapter wattage |
-| `0x8C..0x8D` | `battery_current_ma` / `BTCT` | battery current |
+|       Offset | Field                           | Meaning                    |
+| -----------: | ------------------------------- | -------------------------- |
+|       `0x03` | `cpu_temp_c`                    | CPU temperature            |
+| `0x04..0x05` | `fan_rpm`                       | fan RPM                    |
+| `0x06..0x07` | `fan2_rpm`                      | secondary fan RPM          |
+|       `0x0A` | `cpu_power_w`                   | CPU power                  |
+|       `0x40` | `perf_profile`                  | performance profile byte   |
+|       `0x42` | `tdp_w`                         | TDP-related byte           |
+|       `0x80` | `ac_flags`                      | AC flags byte              |
+|  `0x80 bit0` | `ac_connected`                  | AC present                 |
+|       `0x81` | `ac_adapter_w` / `ADPW`         | AC adapter wattage         |
+| `0x8C..0x8D` | `battery_current_ma` / `BTCT`   | battery current            |
 | `0x8E..0x8F` | `battery_capacity_mah` / `BTPR` | remaining battery capacity |
-| `0x90..0x91` | `battery_voltage_mv` / `BTVT` | battery voltage |
-| `0x96` | `charge_threshold_pct` | charging threshold byte |
-| `0x97` | `battery_temp_c` | battery temperature |
+| `0x90..0x91` | `battery_voltage_mv` / `BTVT`   | battery voltage            |
+|       `0x96` | `charge_threshold_pct`          | charging threshold byte    |
+|       `0x97` | `battery_temp_c`                | battery temperature        |
 
 ### Existing app usage backed by shim fallback
 

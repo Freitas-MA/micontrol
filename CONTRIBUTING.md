@@ -17,7 +17,7 @@ Thank you for your interest in contributing to miPC! This document outlines the 
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/mafsc/micontrol.git
+   git clone https://github.com/arcane-D7/micontrol.git
    cd micontrol
    ```
 
@@ -39,12 +39,19 @@ micontrol/
 ├── src/                    # React frontend (TypeScript)
 │   ├── components/          # Reusable UI components
 │   ├── hooks/              # Custom React hooks
-│   ├── pages/              # Page/tab components
+│   ├── pages/              # Page/tab components (18 tabs)
 │   ├── i18n/               # Internationalization
 │   └── styles/             # CSS and styling
 ├── src-tauri/              # Rust backend (Tauri v2)
 │   ├── src/
 │   │   ├── hw/             # Hardware abstraction layer (HAL)
+│   │   │   ├── battery.rs      # Battery health & AC adapter (WMI)
+│   │   │   ├── ecram.rs        # EC RAM access (IOCTL + pipe client)
+│   │   │   ├── fan.rs          # Fan speed & performance mode (WMI)
+│   │   │   ├── wmi_ec.rs       # WMI EC read/write (MICommonInterface)
+│   │   │   └── wmi_cache.rs    # WMI connection caching
+│   │   ├── bin/
+│   │   │   └── ecram_service.rs # Custom IoTService.exe replacement
 │   │   ├── commands/       # Tauri command handlers
 │   │   ├── util/           # Utility modules
 │   │   └── lib.rs          # Application entry point
@@ -95,6 +102,18 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 - Use functional components with hooks
 - Add TypeScript types for all props
 - Use the i18n system for all user-facing strings
+
+### Hardware Modules & Reverse Engineering
+
+Some hardware modules contain code marked with `// WORKING FORM — DO NOT MODIFY`. These sections have been reverse-engineered and verified against the real Xiaomi IoTDriver.sys kernel driver and WMI interface. **Do not change the logic, API call patterns, or buffer layouts** in these sections without re-testing against the actual hardware.
+
+Key resources:
+
+- `docs/RE_ANALYSIS_REPORT.md` — Complete RE report (IOCTLs, buffer layout, security check, allowed ranges)
+- `docs/HARDWARE_INVESTIGATION.md` — Consolidated hardware investigation findings
+- `docs/iotservice-re-analysis.md` — IoTService.exe IPC protocol and string analysis
+
+The custom `ecram_service.rs` binary (`src-tauri/src/bin/ecram_service.rs`) is a replacement for Xiaomi's IoTService.exe that proxies ECRAM IOCTLs to the kernel driver via named pipe IPC. When deployed, it must be named `IoTService.exe` and placed in the DriverStore directory to pass the driver's security check.
 
 ### Testing
 

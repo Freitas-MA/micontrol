@@ -882,6 +882,136 @@ fn dispatch(cmd: ElevCmd) -> Value {
             }
         }
 
+        // ── WMAA / WMI MiInterface commands (admin required) ──────────────
+        "wmi_ec_read" => {
+            let fun2 = cmd.args["fun2"].as_u64().unwrap_or(0) as u16;
+            let fun3 = cmd.args["fun3"].as_u64().unwrap_or(0) as u16;
+            match crate::hw::wmi_ec::wmi_read(fun2, fun3) {
+                Ok(resp) => make_ok(serde_json::to_value(resp).unwrap_or(Value::Null)),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_write" => {
+            let fun2 = cmd.args["fun2"].as_u64().unwrap_or(0) as u16;
+            let fun3 = cmd.args["fun3"].as_u64().unwrap_or(0) as u16;
+            let fun4 = cmd.args["fun4"].as_u64().unwrap_or(0) as u32;
+            match crate::hw::wmi_ec::wmi_write(fun2, fun3, fun4) {
+                Ok(resp) => make_ok(serde_json::to_value(resp).unwrap_or(Value::Null)),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_get_performance_mode" => match crate::hw::wmi_ec::get_performance_mode() {
+            Ok(mode) => make_ok(serde_json::json!(format!("{mode:?}"))),
+            Err(e) => make_err(e.to_string()),
+        },
+
+        "wmi_ec_set_performance_mode" => {
+            let mode_val = cmd.args["mode"].as_u64().unwrap_or(6) as u16;
+            let mode = crate::hw::wmi_ec::EcPerformanceMode::from_raw(mode_val)
+                .unwrap_or(crate::hw::wmi_ec::EcPerformanceMode::Balanced);
+            match crate::hw::wmi_ec::set_performance_mode(mode) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_read_battery_health" => match crate::hw::wmi_ec::read_battery_health() {
+            Ok(val) => make_ok(serde_json::json!(val)),
+            Err(e) => make_err(e.to_string()),
+        },
+
+        "wmi_ec_read_adapter_power" => match crate::hw::wmi_ec::read_adapter_power() {
+            Ok(val) => make_ok(serde_json::json!(val)),
+            Err(e) => make_err(e.to_string()),
+        },
+
+        "wmi_ec_read_sensor_data" => match crate::hw::wmi_ec::read_sensor_data() {
+            Ok(data) => make_ok(serde_json::to_value(data).unwrap_or(Value::Null)),
+            Err(e) => make_err(e.to_string()),
+        },
+
+        "wmi_ec_set_brightness_data" => {
+            let level = cmd.args["level"].as_u64().unwrap_or(0) as u32;
+            match crate::hw::wmi_ec::set_brightness_data(level) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_sagv_mode" => {
+            let mode = cmd.args["mode"].as_u64().unwrap_or(0) as u32;
+            match crate::hw::wmi_ec::set_sagv_mode(mode) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_pl1_flag" => {
+            let enabled = cmd.args["enabled"].as_bool().unwrap_or(false);
+            match crate::hw::wmi_ec::set_pl1_flag(enabled) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_epof_flag" => {
+            let enabled = cmd.args["enabled"].as_bool().unwrap_or(false);
+            match crate::hw::wmi_ec::set_epof_flag(enabled) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_mi_usage_type" => {
+            let enabled = cmd.args["enabled"].as_bool().unwrap_or(false);
+            match crate::hw::wmi_ec::set_mi_usage_type(enabled) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_wmid_type" => {
+            let val = cmd.args["val"].as_u64().unwrap_or(0) as u32;
+            match crate::hw::wmi_ec::set_wmid_type(val) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_lid_open_type" => {
+            let val = cmd.args["val"].as_u64().unwrap_or(0) as u32;
+            match crate::hw::wmi_ec::set_lid_open_type(val) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_removable_type" => {
+            let val = cmd.args["val"].as_u64().unwrap_or(0) as u32;
+            match crate::hw::wmi_ec::set_removable_type(val) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_auto_illumination" => {
+            let enabled = cmd.args["enabled"].as_bool().unwrap_or(false);
+            match crate::hw::wmi_ec::set_auto_illumination(enabled) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
+        "wmi_ec_set_label_mode" => {
+            let enabled = cmd.args["enabled"].as_bool().unwrap_or(false);
+            match crate::hw::wmi_ec::set_label_mode(enabled) {
+                Ok(()) => make_ok(Value::Null),
+                Err(e) => make_err(e.to_string()),
+            }
+        }
+
         unknown => make_err(format!("Unknown elevated command: {unknown}")),
     }
 }

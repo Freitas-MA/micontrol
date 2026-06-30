@@ -1,4 +1,7 @@
-# MiControl
+# MiControl (LEGACY — superseded by root README.md)
+
+> ⚠️ **DEPRECATED** — This is the legacy README from 2026-05-23. The current README is at [`../../README.md`](../../README.md).
+> Kept for historical reference only. Do not update this file.
 
 > Hardware control panel for Xiaomi laptops on Windows — built with Tauri v2, React 19, and Rust.
 
@@ -39,36 +42,36 @@ MiControl is a native Windows desktop application that exposes the full hardware
 
 ## Features
 
-| Category | Feature | Implementation |
-|---|---|---|
-| **Performance** | 7 performance modes (Silence → Turbo → Extreme) | VHF DeviceIoControl + Registry |
-| **Battery** | Level, health, cycle count, temperature, voltage, time remaining | WMI `root\wmi` |
-| **Charging** | Configurable charge limit (40 / 50 / 60 / 70 / 80%) | IoTService named pipe |
-| **Display** | Brightness control (0–100%) | Intel IGCL (`ControlLib.dll`) / WMI fallback |
-| **Display** | HDR on/off | Intel IGCL `CtlHdrSetState` |
-| **Display** | AI Adaptive Brightness toggle | Intel IGCL + Registry |
-| **Display** | Adaptive brightness sensitivity (floor, ceiling, sensitivity, smoothing) | Windows Sensor API (`LightSensor`) + Tokio loop |
-| **Display** | Current refresh rate readout | WMI `WmiMonitorBrightness` |
-| **Fan** | Fan RPM readout | WMI `Win32_Fan` |
-| **Fan** | GPU temperature | WMI `MSAcpi_ThermalZoneTemperature` |
-| **Fan** | Fan mode: Auto / Fixed / Off | Registry `HKLM\SOFTWARE\MI\FanControl` |
-| **Touchpad** | Sensitivity: Low / Medium / High / Max | HID output report (BLTP7853 COL04) |
-| **Touchpad** | Haptic feedback toggle | HID output report + Registry |
-| **System** | CPU name, cores, threads, usage % | WMI `Win32_Processor` |
-| **System** | GPU name | WMI `Win32_VideoController` |
-| **System** | RAM total / free | WMI `Win32_PhysicalMemory` |
-| **System** | OS version | WMI `Win32_OperatingSystem` |
-| **Discovery** | Auto-detect all hardware paths at startup | SetupAPI + WMI + Registry scan |
-| **Discovery** | Capability flags (7 flags) gates UI features per device | `HardwareCapabilities` struct |
-| **Discovery** | Touchscreen + Stylus HID path detection | HID Usage Page `0x000D` |
-| **Updates** | BIOS version check | WMI `Win32_BIOS` |
-| **Updates** | Xiaomi driver scan | `pnputil /enum-drivers` |
-| **AI Advisor** | Hardware analysis & optimisation recommendations | OpenAI-compatible REST API (frontend `fetch`) |
-| **AI Advisor** | Configurable endpoint (OpenAI, Ollama, Azure, LM Studio…) | `localStorage` key `micontrol_settings_v1` |
-| **Startup** | Run at Windows startup | `HKCU\...\CurrentVersion\Run` |
-| **Tray** | Minimize to system tray | Tauri tray icon |
-| **Tray** | Quick-actions popup (300 px) | `TrayPopup.tsx` |
-| **i18n** | All strings centralized in `en.json` | Custom `useI18n` hook |
+| Category        | Feature                                                                  | Implementation                                  |
+| --------------- | ------------------------------------------------------------------------ | ----------------------------------------------- |
+| **Performance** | 7 performance modes (Silence → Turbo → Extreme)                          | VHF DeviceIoControl + Registry                  |
+| **Battery**     | Level, health, cycle count, temperature, voltage, time remaining         | WMI `root\wmi`                                  |
+| **Charging**    | Configurable charge limit (40 / 50 / 60 / 70 / 80%)                      | IoTService named pipe                           |
+| **Display**     | Brightness control (0–100%)                                              | Intel IGCL (`ControlLib.dll`) / WMI fallback    |
+| **Display**     | HDR on/off                                                               | Intel IGCL `CtlHdrSetState`                     |
+| **Display**     | AI Adaptive Brightness toggle                                            | Intel IGCL + Registry                           |
+| **Display**     | Adaptive brightness sensitivity (floor, ceiling, sensitivity, smoothing) | Windows Sensor API (`LightSensor`) + Tokio loop |
+| **Display**     | Current refresh rate readout                                             | WMI `WmiMonitorBrightness`                      |
+| **Fan**         | Fan RPM readout                                                          | WMI `Win32_Fan`                                 |
+| **Fan**         | GPU temperature                                                          | WMI `MSAcpi_ThermalZoneTemperature`             |
+| **Fan**         | Fan mode: Auto / Fixed / Off                                             | Registry `HKLM\SOFTWARE\MI\FanControl`          |
+| **Touchpad**    | Sensitivity: Low / Medium / High / Max                                   | HID output report (BLTP7853 COL04)              |
+| **Touchpad**    | Haptic feedback toggle                                                   | HID output report + Registry                    |
+| **System**      | CPU name, cores, threads, usage %                                        | WMI `Win32_Processor`                           |
+| **System**      | GPU name                                                                 | WMI `Win32_VideoController`                     |
+| **System**      | RAM total / free                                                         | WMI `Win32_PhysicalMemory`                      |
+| **System**      | OS version                                                               | WMI `Win32_OperatingSystem`                     |
+| **Discovery**   | Auto-detect all hardware paths at startup                                | SetupAPI + WMI + Registry scan                  |
+| **Discovery**   | Capability flags (7 flags) gates UI features per device                  | `HardwareCapabilities` struct                   |
+| **Discovery**   | Touchscreen + Stylus HID path detection                                  | HID Usage Page `0x000D`                         |
+| **Updates**     | BIOS version check                                                       | WMI `Win32_BIOS`                                |
+| **Updates**     | Xiaomi driver scan                                                       | `pnputil /enum-drivers`                         |
+| **AI Advisor**  | Hardware analysis & optimisation recommendations                         | OpenAI-compatible REST API (frontend `fetch`)   |
+| **AI Advisor**  | Configurable endpoint (OpenAI, Ollama, Azure, LM Studio…)                | `localStorage` key `micontrol_settings_v1`      |
+| **Startup**     | Run at Windows startup                                                   | `HKCU\...\CurrentVersion\Run`                   |
+| **Tray**        | Minimize to system tray                                                  | Tauri tray icon                                 |
+| **Tray**        | Quick-actions popup (300 px)                                             | `TrayPopup.tsx`                                 |
+| **i18n**        | All strings centralized in `en.json`                                     | Custom `useI18n` hook                           |
 
 ---
 
@@ -230,15 +233,15 @@ sequenceDiagram
 
 **Available modes:**
 
-| Mode | HW Value | Description |
-|---|---|---|
-| `silence` | `0` | Quiet operation, fan off, reduced performance |
-| `balance` | `1` | Balanced — recommended for most tasks *(default)* |
-| `turbo` | `2` | Maximum performance |
-| `decepticon` | `3` | Unlocked extreme mode (requires firmware unlock) |
-| `smart` | `10` | Auto-adjusts based on workload |
-| `long_battery` | `11` | Extended battery life, reduced performance |
-| `smart_acceleration` | `14` | Temporary performance boost when needed |
+| Mode                 | HW Value | Description                                       |
+| -------------------- | -------- | ------------------------------------------------- |
+| `silence`            | `0`      | Quiet operation, fan off, reduced performance     |
+| `balance`            | `1`      | Balanced — recommended for most tasks _(default)_ |
+| `turbo`              | `2`      | Maximum performance                               |
+| `decepticon`         | `3`      | Unlocked extreme mode (requires firmware unlock)  |
+| `smart`              | `10`     | Auto-adjusts based on workload                    |
+| `long_battery`       | `11`     | Extended battery life, reduced performance        |
+| `smart_acceleration` | `14`     | Temporary performance boost when needed           |
 
 ---
 
@@ -258,7 +261,7 @@ flowchart LR
     G -->|pipe fail| I[Registry Fallback\nHKLM\SOFTWARE\MI]
 ```
 
-**Charge limit options:** `40%` / `50%` / `60%` / `70%` / `80%` *(recommended)*
+**Charge limit options:** `40%` / `50%` / `60%` / `70%` / `80%` _(recommended)_
 
 ---
 
@@ -296,12 +299,12 @@ $$\text{smoothed}_{n} = \text{smoothed}_{n-1} + (\text{target} - \text{smoothed}
 
 **Configurable parameters (registry `HKLM\SOFTWARE\MI\DisplaySettings`):**
 
-| Parameter | Range | Default | Effect |
-|---|---|---|---|
-| `AiBrightnessMin` | 5–80% | 10% | Floor — never dims below this |
-| `AiBrightnessMax` | 20–100% | 100% | Ceiling — never exceeds this |
-| `AiBrightnessSensitivity` | 10–200 | 100 | 200 = full range reached at 1000 lux; 50 = at 4000 lux |
-| `AiBrightnessSmoothing` | 0–90 | 30 | 0 = instant; 90 = ~40 s to reach target |
+| Parameter                 | Range   | Default | Effect                                                 |
+| ------------------------- | ------- | ------- | ------------------------------------------------------ |
+| `AiBrightnessMin`         | 5–80%   | 10%     | Floor — never dims below this                          |
+| `AiBrightnessMax`         | 20–100% | 100%    | Ceiling — never exceeds this                           |
+| `AiBrightnessSensitivity` | 10–200  | 100     | 200 = full range reached at 1000 lux; 50 = at 4000 lux |
+| `AiBrightnessSmoothing`   | 0–90    | 30      | 0 = instant; 90 = ~40 s to reach target                |
 
 The sensitivity panel is exposed in the Display tab whenever the AI Adaptive Brightness toggle is ON, via a collapsible "Configure sensitivity…" section.
 
@@ -356,12 +359,12 @@ sequenceDiagram
 
 System information is collected once at startup and refreshed on a 5-second polling interval via WMI `root\cimv2`.
 
-| WMI Class | Data |
-|---|---|
-| `Win32_Processor` | Name, core count, thread count, load % |
-| `Win32_VideoController` | GPU name |
-| `Win32_PhysicalMemory` | Total RAM (MB) |
-| `Win32_OperatingSystem` | OS caption, free RAM |
+| WMI Class               | Data                                   |
+| ----------------------- | -------------------------------------- |
+| `Win32_Processor`       | Name, core count, thread count, load % |
+| `Win32_VideoController` | GPU name                               |
+| `Win32_PhysicalMemory`  | Total RAM (MB)                         |
+| `Win32_OperatingSystem` | OS caption, free RAM                   |
 
 ---
 
@@ -389,15 +392,15 @@ flowchart TD
 
 **Capability flags (`HardwareCapabilities`):**
 
-| Flag | Meaning | Gated feature |
-|---|---|---|
-| `has_vhf_performance` | VHF driver found | Performance mode IOCTL |
-| `has_touchpad_hid` | BLTP7853 HID path found | Touchpad haptics |
-| `has_touchscreen` | Digitizer HID found | (display only) |
-| `has_stylus` | Stylus HID found | (display only) |
-| `has_igcl` | `ControlLib.dll` found | HDR + AI Adaptive Brightness |
-| `has_iot_charging` | IoTService pipe reachable | Charging threshold |
-| `has_mi_registry` | `HKLM\SOFTWARE\MI` present | Registry-based settings |
+| Flag                  | Meaning                    | Gated feature                |
+| --------------------- | -------------------------- | ---------------------------- |
+| `has_vhf_performance` | VHF driver found           | Performance mode IOCTL       |
+| `has_touchpad_hid`    | BLTP7853 HID path found    | Touchpad haptics             |
+| `has_touchscreen`     | Digitizer HID found        | (display only)               |
+| `has_stylus`          | Stylus HID found           | (display only)               |
+| `has_igcl`            | `ControlLib.dll` found     | HDR + AI Adaptive Brightness |
+| `has_iot_charging`    | IoTService pipe reachable  | Charging threshold           |
+| `has_mi_registry`     | `HKLM\SOFTWARE\MI` present | Registry-based settings      |
 
 ---
 
@@ -445,11 +448,11 @@ sequenceDiagram
 
 ### Configuration (Settings tab)
 
-| Setting | Default | Notes |
-|---|---|---|
-| API Key | *(empty)* | OpenAI `sk-…` or custom token |
+| Setting  | Default                     | Notes                                                                   |
+| -------- | --------------------------- | ----------------------------------------------------------------------- |
+| API Key  | _(empty)_                   | OpenAI `sk-…` or custom token                                           |
 | Base URL | `https://api.openai.com/v1` | Change for Ollama (`http://localhost:11434/v1`), Azure, LM Studio, etc. |
-| Model | `gpt-4o-mini` | Preset buttons + custom text input |
+| Model    | `gpt-4o-mini`               | Preset buttons + custom text input                                      |
 
 Settings are stored exclusively in `localStorage` under the key `micontrol_settings_v1`. The key never leaves the device except to the configured API endpoint.
 
@@ -532,22 +535,22 @@ micontrol/
 
 ## Tech Stack
 
-| Layer | Technology | Version |
-|---|---|---|
-| Shell | Tauri | 2.11.1 |
-| Frontend framework | React | 19.1.0 |
-| Frontend language | TypeScript | 5.8.3 |
-| Build tool | Vite | 6.3.5 |
-| Backend language | Rust | stable (1.95.0) |
-| Async runtime | Tokio | 1 |
-| Windows API | windows-rs | 0.58 |
-| WMI | wmi-rs | 0.13 |
-| Registry | winreg | 0.52 |
-| Dynamic loading | libloading | 0.8 |
-| Frontend tests | Vitest | 3.2.4 |
-| Component tests | Testing Library | 16.3.0 |
-| Installer | NSIS (via Tauri) | — |
-| Package | MSI (via Tauri WiX) | — |
+| Layer              | Technology          | Version         |
+| ------------------ | ------------------- | --------------- |
+| Shell              | Tauri               | 2.11.1          |
+| Frontend framework | React               | 19.1.0          |
+| Frontend language  | TypeScript          | 5.8.3           |
+| Build tool         | Vite                | 6.3.5           |
+| Backend language   | Rust                | stable (1.95.0) |
+| Async runtime      | Tokio               | 1               |
+| Windows API        | windows-rs          | 0.58            |
+| WMI                | wmi-rs              | 0.13            |
+| Registry           | winreg              | 0.52            |
+| Dynamic loading    | libloading          | 0.8             |
+| Frontend tests     | Vitest              | 3.2.4           |
+| Component tests    | Testing Library     | 16.3.0          |
+| Installer          | NSIS (via Tauri)    | —               |
+| Package            | MSI (via Tauri WiX) | —               |
 
 ---
 
@@ -555,13 +558,13 @@ micontrol/
 
 ### Prerequisites
 
-| Requirement | Notes |
-|---|---|
-| Windows 10/11 x64 | Required — hardware APIs are Windows-only |
-| Rust stable | `rustup target add x86_64-pc-windows-msvc` |
-| Node.js ≥ 20 | For the Vite frontend |
-| VS Build Tools 2022 | MSVC toolchain + Windows SDK 10.0.26100.0 |
-| Xiaomi Laptop | Tested on Mi Notebook Pro / Mi Laptop Pro series |
+| Requirement         | Notes                                            |
+| ------------------- | ------------------------------------------------ |
+| Windows 10/11 x64   | Required — hardware APIs are Windows-only        |
+| Rust stable         | `rustup target add x86_64-pc-windows-msvc`       |
+| Node.js ≥ 20        | For the Vite frontend                            |
+| VS Build Tools 2022 | MSVC toolchain + Windows SDK 10.0.26100.0        |
+| Xiaomi Laptop       | Tested on Mi Notebook Pro / Mi Laptop Pro series |
 
 ### Development Build
 
@@ -588,11 +591,11 @@ npx tauri build
 
 **Output artifacts:**
 
-| Artifact | Path | Size |
-|---|---|---|
-| Standalone EXE | `target/release/micontrol.exe` | ~4.8 MB |
+| Artifact       | Path                                                       | Size     |
+| -------------- | ---------------------------------------------------------- | -------- |
+| Standalone EXE | `target/release/micontrol.exe`                             | ~4.8 MB  |
 | NSIS Installer | `target/release/bundle/nsis/MiControl_0.1.0_x64-setup.exe` | ~1.95 MB |
-| MSI Package | `target/release/bundle/msi/MiControl_0.1.0_x64_en-US.msi` | ~2.73 MB |
+| MSI Package    | `target/release/bundle/msi/MiControl_0.1.0_x64_en-US.msi`  | ~2.73 MB |
 
 ---
 
@@ -618,10 +621,10 @@ flowchart TD
 
 ### Required drivers
 
-| Driver | Purpose | Device GUID |
-|---|---|---|
-| `VirtualControlHID.sys` | Performance mode IOCTL | `{0CC99493-EB87-54F5-BB10-C0D5EA4A4F4C}` |
-| `IoTDriver.sys` + `IoTService.exe` | Charging threshold IPC | ACPI `IOTD0000` |
+| Driver                             | Purpose                | Device GUID                              |
+| ---------------------------------- | ---------------------- | ---------------------------------------- |
+| `VirtualControlHID.sys`            | Performance mode IOCTL | `{0CC99493-EB87-54F5-BB10-C0D5EA4A4F4C}` |
+| `IoTDriver.sys` + `IoTService.exe` | Charging threshold IPC | ACPI `IOTD0000`                          |
 
 ---
 
@@ -630,6 +633,7 @@ flowchart TD
 All UI text is stored in a single JSON file: [`src/i18n/en.json`](src/i18n/en.json).
 
 The `useI18n` hook provides a `t(key, vars?)` function with:
+
 - **Nested key traversal** — e.g. `t("performance.modes.turbo")`
 - **Variable interpolation** — e.g. `t("performance.currentMode", { mode: "Turbo" })`
 - **TypeScript safety** — `StringKey` type prevents typos at compile time
@@ -685,7 +689,6 @@ pie title Test Coverage by Module
 
 This project is provided as-is for personal use on Xiaomi hardware. The bundled drivers (`VirtualControlHID.sys`, `IoTDriver.sys`, `IoTService.exe`) are property of Xiaomi and were extracted from the official **XiaomiPCManager 5.8.0.57** package.
 
-
 MiControl is a native Windows desktop application that exposes the full hardware control interface of Xiaomi laptops: performance modes, battery charging thresholds, display management, fan curves, touchpad settings, and more — all in a single, lightweight system-tray app.
 
 ---
@@ -720,28 +723,28 @@ MiControl is a native Windows desktop application that exposes the full hardware
 
 ## Features
 
-| Category | Feature | Implementation |
-|---|---|---|
-| **Performance** | 7 performance modes (Silence → Turbo → Extreme) | VHF DeviceIoControl + Registry |
-| **Battery** | Level, health, cycle count, temperature, voltage, time remaining | WMI `root\wmi` |
-| **Charging** | Configurable charge limit (40 / 50 / 60 / 70 / 80%) | IoTService named pipe |
-| **Display** | Brightness control (0–100%) | Intel IGCL (`ControlLib.dll`) |
-| **Display** | HDR on/off | Intel IGCL `CtlHdrSetState` |
-| **Display** | AI Adaptive Brightness | Intel IGCL ambient light API |
-| **Display** | Current refresh rate readout | WMI `WmiMonitorBrightness` |
-| **Fan** | Fan RPM readout | WMI `Win32_Fan` |
-| **Fan** | GPU temperature | WMI `MSAcpi_ThermalZoneTemperature` |
-| **Fan** | Fan mode: Auto / Fixed / Off | Registry `HKLM\SOFTWARE\MI\FanControl` |
-| **Touchpad** | Sensitivity: Low / Medium / High / Max | HID output report (BLTP7853 COL04) |
-| **Touchpad** | Haptic feedback toggle | HID output report + Registry |
-| **System** | CPU name, cores, threads, usage % | WMI `Win32_Processor` |
-| **System** | GPU name | WMI `Win32_VideoController` |
-| **System** | RAM total / free | WMI `Win32_PhysicalMemory` |
-| **System** | OS version | WMI `Win32_OperatingSystem` |
-| **Startup** | Run at Windows startup | `HKCU\...\CurrentVersion\Run` |
-| **Tray** | Minimize to system tray | Tauri tray icon |
-| **Tray** | Quick-actions popup (300 px) | `TrayPopup.tsx` |
-| **i18n** | All strings centralized in `en.json` | Custom `useI18n` hook |
+| Category        | Feature                                                          | Implementation                         |
+| --------------- | ---------------------------------------------------------------- | -------------------------------------- |
+| **Performance** | 7 performance modes (Silence → Turbo → Extreme)                  | VHF DeviceIoControl + Registry         |
+| **Battery**     | Level, health, cycle count, temperature, voltage, time remaining | WMI `root\wmi`                         |
+| **Charging**    | Configurable charge limit (40 / 50 / 60 / 70 / 80%)              | IoTService named pipe                  |
+| **Display**     | Brightness control (0–100%)                                      | Intel IGCL (`ControlLib.dll`)          |
+| **Display**     | HDR on/off                                                       | Intel IGCL `CtlHdrSetState`            |
+| **Display**     | AI Adaptive Brightness                                           | Intel IGCL ambient light API           |
+| **Display**     | Current refresh rate readout                                     | WMI `WmiMonitorBrightness`             |
+| **Fan**         | Fan RPM readout                                                  | WMI `Win32_Fan`                        |
+| **Fan**         | GPU temperature                                                  | WMI `MSAcpi_ThermalZoneTemperature`    |
+| **Fan**         | Fan mode: Auto / Fixed / Off                                     | Registry `HKLM\SOFTWARE\MI\FanControl` |
+| **Touchpad**    | Sensitivity: Low / Medium / High / Max                           | HID output report (BLTP7853 COL04)     |
+| **Touchpad**    | Haptic feedback toggle                                           | HID output report + Registry           |
+| **System**      | CPU name, cores, threads, usage %                                | WMI `Win32_Processor`                  |
+| **System**      | GPU name                                                         | WMI `Win32_VideoController`            |
+| **System**      | RAM total / free                                                 | WMI `Win32_PhysicalMemory`             |
+| **System**      | OS version                                                       | WMI `Win32_OperatingSystem`            |
+| **Startup**     | Run at Windows startup                                           | `HKCU\...\CurrentVersion\Run`          |
+| **Tray**        | Minimize to system tray                                          | Tauri tray icon                        |
+| **Tray**        | Quick-actions popup (300 px)                                     | `TrayPopup.tsx`                        |
+| **i18n**        | All strings centralized in `en.json`                             | Custom `useI18n` hook                  |
 
 ---
 
@@ -877,15 +880,15 @@ sequenceDiagram
 
 **Available modes:**
 
-| Mode | HW Value | Description |
-|---|---|---|
-| `silence` | `0` | Quiet operation, fan off, reduced performance |
-| `balance` | `1` | Balanced — recommended for most tasks *(default)* |
-| `turbo` | `2` | Maximum performance |
-| `decepticon` | `3` | Unlocked extreme mode (requires firmware unlock) |
-| `smart` | `10` | Auto-adjusts based on workload |
-| `long_battery` | `11` | Extended battery life, reduced performance |
-| `smart_acceleration` | `14` | Temporary performance boost when needed |
+| Mode                 | HW Value | Description                                       |
+| -------------------- | -------- | ------------------------------------------------- |
+| `silence`            | `0`      | Quiet operation, fan off, reduced performance     |
+| `balance`            | `1`      | Balanced — recommended for most tasks _(default)_ |
+| `turbo`              | `2`      | Maximum performance                               |
+| `decepticon`         | `3`      | Unlocked extreme mode (requires firmware unlock)  |
+| `smart`              | `10`     | Auto-adjusts based on workload                    |
+| `long_battery`       | `11`     | Extended battery life, reduced performance        |
+| `smart_acceleration` | `14`     | Temporary performance boost when needed           |
 
 ---
 
@@ -905,7 +908,7 @@ flowchart LR
     G -->|pipe fail| I[Registry Fallback\nHKLM\SOFTWARE\MI]
 ```
 
-**Charge limit options:** `40%` / `50%` / `60%` / `70%` / `80%` *(recommended)*
+**Charge limit options:** `40%` / `50%` / `60%` / `70%` / `80%` _(recommended)_
 
 ---
 
@@ -977,12 +980,12 @@ sequenceDiagram
 
 System information is collected once at startup and refreshed on a 5-second polling interval via WMI `root\cimv2`.
 
-| WMI Class | Data |
-|---|---|
-| `Win32_Processor` | Name, core count, thread count, load % |
-| `Win32_VideoController` | GPU name |
-| `Win32_PhysicalMemory` | Total RAM (MB) |
-| `Win32_OperatingSystem` | OS caption, free RAM |
+| WMI Class               | Data                                   |
+| ----------------------- | -------------------------------------- |
+| `Win32_Processor`       | Name, core count, thread count, load % |
+| `Win32_VideoController` | GPU name                               |
+| `Win32_PhysicalMemory`  | Total RAM (MB)                         |
+| `Win32_OperatingSystem` | OS caption, free RAM                   |
 
 ---
 
@@ -1077,22 +1080,22 @@ micontrol/
 
 ## Tech Stack
 
-| Layer | Technology | Version |
-|---|---|---|
-| Shell | Tauri | 2.11.1 |
-| Frontend framework | React | 19.1.0 |
-| Frontend language | TypeScript | 5.8.3 |
-| Build tool | Vite | 6.3.5 |
-| Backend language | Rust | stable (1.95.0) |
-| Async runtime | Tokio | 1 |
-| Windows API | windows-rs | 0.58 |
-| WMI | wmi-rs | 0.13 |
-| Registry | winreg | 0.52 |
-| Dynamic loading | libloading | 0.8 |
-| Frontend tests | Vitest | 3.2.4 |
-| Component tests | Testing Library | 16.3.0 |
-| Installer | NSIS (via Tauri) | — |
-| Package | MSI (via Tauri WiX) | — |
+| Layer              | Technology          | Version         |
+| ------------------ | ------------------- | --------------- |
+| Shell              | Tauri               | 2.11.1          |
+| Frontend framework | React               | 19.1.0          |
+| Frontend language  | TypeScript          | 5.8.3           |
+| Build tool         | Vite                | 6.3.5           |
+| Backend language   | Rust                | stable (1.95.0) |
+| Async runtime      | Tokio               | 1               |
+| Windows API        | windows-rs          | 0.58            |
+| WMI                | wmi-rs              | 0.13            |
+| Registry           | winreg              | 0.52            |
+| Dynamic loading    | libloading          | 0.8             |
+| Frontend tests     | Vitest              | 3.2.4           |
+| Component tests    | Testing Library     | 16.3.0          |
+| Installer          | NSIS (via Tauri)    | —               |
+| Package            | MSI (via Tauri WiX) | —               |
 
 ---
 
@@ -1100,13 +1103,13 @@ micontrol/
 
 ### Prerequisites
 
-| Requirement | Notes |
-|---|---|
-| Windows 10/11 x64 | Required — hardware APIs are Windows-only |
-| Rust stable | `rustup target add x86_64-pc-windows-msvc` |
-| Node.js ≥ 20 | For the Vite frontend |
-| VS Build Tools 2022 | MSVC toolchain + Windows SDK 10.0.26100.0 |
-| Xiaomi Laptop | Tested on Mi Notebook Pro / Mi Laptop Pro series |
+| Requirement         | Notes                                            |
+| ------------------- | ------------------------------------------------ |
+| Windows 10/11 x64   | Required — hardware APIs are Windows-only        |
+| Rust stable         | `rustup target add x86_64-pc-windows-msvc`       |
+| Node.js ≥ 20        | For the Vite frontend                            |
+| VS Build Tools 2022 | MSVC toolchain + Windows SDK 10.0.26100.0        |
+| Xiaomi Laptop       | Tested on Mi Notebook Pro / Mi Laptop Pro series |
 
 ### Development Build
 
@@ -1133,11 +1136,11 @@ npx tauri build
 
 **Output artifacts:**
 
-| Artifact | Path | Size |
-|---|---|---|
-| Standalone EXE | `target/release/micontrol.exe` | ~4.8 MB |
+| Artifact       | Path                                                       | Size     |
+| -------------- | ---------------------------------------------------------- | -------- |
+| Standalone EXE | `target/release/micontrol.exe`                             | ~4.8 MB  |
 | NSIS Installer | `target/release/bundle/nsis/MiControl_0.1.0_x64-setup.exe` | ~1.95 MB |
-| MSI Package | `target/release/bundle/msi/MiControl_0.1.0_x64_en-US.msi` | ~2.73 MB |
+| MSI Package    | `target/release/bundle/msi/MiControl_0.1.0_x64_en-US.msi`  | ~2.73 MB |
 
 ---
 
@@ -1163,10 +1166,10 @@ flowchart TD
 
 ### Required drivers
 
-| Driver | Purpose | Device GUID |
-|---|---|---|
-| `VirtualControlHID.sys` | Performance mode IOCTL | `{0CC99493-EB87-54F5-BB10-C0D5EA4A4F4C}` |
-| `IoTDriver.sys` + `IoTService.exe` | Charging threshold IPC | ACPI `IOTD0000` |
+| Driver                             | Purpose                | Device GUID                              |
+| ---------------------------------- | ---------------------- | ---------------------------------------- |
+| `VirtualControlHID.sys`            | Performance mode IOCTL | `{0CC99493-EB87-54F5-BB10-C0D5EA4A4F4C}` |
+| `IoTDriver.sys` + `IoTService.exe` | Charging threshold IPC | ACPI `IOTD0000`                          |
 
 ---
 
@@ -1175,6 +1178,7 @@ flowchart TD
 All UI text is stored in a single JSON file: [`src/i18n/en.json`](src/i18n/en.json).
 
 The `useI18n` hook provides a `t(key, vars?)` function with:
+
 - **Nested key traversal** — e.g. `t("performance.modes.turbo")`
 - **Variable interpolation** — e.g. `t("performance.currentMode", { mode: "Turbo" })`
 - **TypeScript safety** — `StringKey` type prevents typos at compile time

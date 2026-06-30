@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Custom IoTService.exe replacement binary** (`src-tauri/src/bin/ecram_service.rs`) — Rust binary that proxies ECRAM read/write IOCTLs to IoTDriver.sys via named pipe IPC (`\\.\pipe\ecram_service`, JSON protocol). Passes driver security check by being named `IoTService.exe` and placed in the DriverStore directory.
+- **Pipe client in ecram.rs** — `read_ecram_via_pipe()` and `is_pipe_broker_available()` functions for communicating with the custom IoTService.exe via named pipe.
+- **RE Analysis Report** (`docs/RE_ANALYSIS_REPORT.md`) — Complete reverse engineering documentation of IoTDriver.sys and IoTService.exe: IOCTL codes (`0x22E000`/`0x22E004`), buffer layout (0x110 bytes), allowed physical address ranges, security check mechanism, custom replacement design, test results, and limitations.
+- **WORKING FORM comments** — 12 reverse-engineering findings documented across 5 Rust source files (`battery.rs`, `ecram.rs`, `fan.rs`, `wmi_cache.rs`, `wmi_ec.rs`) marking verified code patterns that must not be modified without re-testing against real hardware.
+
+### Changed
+
+- Updated `docs/iotservice-re-analysis.md` — Added Phase 2 findings (radare2 deep analysis), cross-referenced with RE_ANALYSIS_REPORT.md, updated viability assessment and next steps.
+- Updated `docs/HARDWARE_INVESTIGATION.md` — Added Session 6 findings (custom IoTService.exe, allowed address ranges, ERAM/SMA2 inaccessibility, pipe client integration).
+- Updated `README.md` — Added EC RAM Access feature description and architecture details for custom IoTService.exe.
+- Updated `AGENTS.md` — Added hardware module inventory, key hardware interfaces table, RE documentation references, and WORKING FORM editing rules.
+- Updated `docs/frontend-architecture.md` — Corrected tab count from 17 to 18 (includes dev-only ecrdebug tab).
+
+### Known Limitations
+
+- **ERAM region (0xFE0B0300) not accessible** — IoTDriver.sys hardcoded address ranges do not include ERAM. AC adapter wattage (ADPW at ERAM+0x81) cannot be read via driver. Use WMI as alternative.
+- **SMA2 region (0xFE0B0A00) not accessible** — Same limitation as ERAM.
+- **Secure Boot prevents driver modification** — IoTDriver.sys cannot be patched to add ERAM/SMA2 ranges without disabling Secure Boot.
+
 ## [1.0.0] - 2025-01-XX
 
 ### Added
@@ -65,6 +86,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Driver management
 - Multi-language support (en, pt, es, fr)
 
-[Unreleased]: https://github.com/user/miPC/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/user/miPC/releases/tag/v1.0.0
-[0.1.0]: https://github.com/user/miPC/releases/tag/v0.1.0
+[Unreleased]: https://github.com/arcane-D7/micontrol/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/arcane-D7/micontrol/releases/tag/v1.0.0
+[0.1.0]: https://github.com/arcane-D7/micontrol/releases/tag/v0.1.0

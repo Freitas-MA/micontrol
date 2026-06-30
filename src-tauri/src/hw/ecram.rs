@@ -2,6 +2,38 @@
 //!
 //! Communicates with the kernel driver through IOCTL codes to read
 //! and write physical memory regions of the Embedded Controller.
+//!
+//! ═══════════════════════════════════════════════════════════════════════════
+//! WORKING FORM — REVERSE ENGINEERING FINDINGS (DO NOT MODIFY)
+//! ═══════════════════════════════════════════════════════════════════════════
+//!
+//! IoTDriver.sys Security Check (confirmed by RE + live testing):
+//!   1. IoGetCurrentProcess() → gets calling process EPROCESS
+//!   2. SeLocateProcessImageName() → gets full NT path of process image
+//!   3. Resolves NT path to DOS path (iterates C: through Z: symbolic links)
+//!   4. RtlPrefixUnicodeString → checks path starts with driver's DriverStore dir
+//!   5. RtlCompareUnicodeString → checks filename == "IoTService.exe"
+//!
+//! IoTDriver.sys Allowed Physical Address Ranges (hardcoded at offset 0x140004370):
+//!   Range 1: 0xFE0B0F00, size 0x80  (128 bytes) — IoTDriver status + sensors
+//!   Range 2: 0xFE0B0AB8, size 0x08  (8 bytes)   — small status region
+//!   Range 3: 0xFE0B0E00, size 0x100 (256 bytes) — ECRAM sensor block
+//!
+//! NOT ACCESSIBLE (returns STATUS_ACCESS_DENIED 0xC0000022):
+//!   ❌ ERAM (0xFE0B0300, 256 bytes) — contains ADPW, battery data
+//!   ❌ SMA2 (0xFE0B0A00, 256 bytes)
+//!
+//! Custom IoTService.exe (ecram_service.rs):
+//!   - Named "IoTService.exe" and placed in DriverStore dir → passes security check
+//!   - Provides named pipe IPC at \\.\pipe\ecram_service
+//!   - Can read/write all 3 allowed ranges
+//!   - CANNOT read ERAM/SMA2 (driver blocks these addresses)
+//!
+//! MiControl Strategy:
+//!   - Most features work via WMI (MICommonInterface) — no IoTDriver needed
+//!   - ECRAM sensor data available via custom IoTService.exe pipe
+//!   - ERAM data (ADPW, battery details) NOT available through existing driver
+//! ═══════════════════════════════════════════════════════════════════════════
 
 /// ECRAM (Embedded Controller RAM) reader via IoTDriver.sys
 ///
@@ -15,19 +47,22 @@
 /// process to be named "IoTService.exe" located in the DriverStore path.
 ///
 /// Known physical memory regions (discovered via DSDT + IoTService.exe RE):
-///   0xFE0B0300 [0x100 bytes] — ACPI ERAM (SystemMemory OperationRegion)
+///   0xFE0B0300 [0x100 bytes] — ACPI ERAM (SystemMemory OperationRegion) — ❌ NOT ACCESSIBLE
 ///     Field map (subset of 219 total fields):
 ///       +0x80 bit0: ACIN  — AC adapter connected bit
 ///       +0x81:      ADPW  — AC adapter wattage (1 byte, in whole Watts, e.g. 65)
 ///       +0x8C:      BTCT  — Battery current (u16 LE, mA)
 ///       +0x8E:      BTPR  — Battery remaining capacity (u16 LE, mAh)
 ///       +0x90:      BTVT  — Battery voltage (u16 LE, mV)
-///   0xFE0B0A00 [0x100 bytes] — ACPI SMA2 region (fields not decoded)
-///   0xFE0B0F00 [8 bytes]     — IoTDriver status block (IoT device flags)
-///   0xFE0B0F08 [0x78 bytes]  — IoTDevice state block (WiFi/bind status, NOT power)
+///   0xFE0B0A00 [0x100 bytes] — ACPI SMA2 region — ❌ NOT ACCESSIBLE
+///   0xFE0B0F00 [8 bytes]     — IoTDriver status block — ✅ ACCESSIBLE (allowed range 1)
+///   0xFE0B0F08 [0x78 bytes]  — IoTDevice state block — ✅ ACCESSIBLE (allowed range 1)
+///   0xFE0B0E00 [0x100 bytes] — ECRAM sensor block — ✅ ACCESSIBLE (allowed range 3)
 ///
 /// AC adapter wattage (ADPW) is at physical address 0xFE0B0381 (ERAM + 0x81).
 /// Reading requires satisfying the IoTDriver security check (process name = IoTService.exe).
+/// Even with the security check passed, ERAM (0xFE0B0300) is NOT in the driver's
+/// allowed address ranges, so ADPW CANNOT be read through the existing driver.
 use crate::hw::errors::{HardwareError, HardwareResult};
 use anyhow::Context;
 use std::path::PathBuf;
@@ -958,6 +993,206 @@ pub fn read_eram_map() -> HardwareResult<EramMap> {
         keyboard_backlight_level: eram[0xB2] & 0x7F,
         raw_hex,
     })
+}
+
+// ── Pipe client for custom IoTService.exe ────────────────────────────────────
+//
+// WORKING FORM — This module communicates with our custom IoTService.exe
+// (built from ecram_service.rs) via named pipe IPC.
+//
+// The custom IoTService.exe is placed in the driver's DriverStore directory
+// and named "IoTService.exe" to pass the driver's security check.
+// It provides JSON-over-named-pipe IPC at \\.\pipe\ecram_service.
+//
+// This allows MiControl to read/write the ALLOWED ECRAM ranges:
+//   ✅ IOT_STATUS (0xFE0B0F00, 8 bytes)
+//   ✅ IOT_SENSORS (0xFE0B0F08, 120 bytes)
+//   ✅ ECRAM sensor block (0xFE0B0E00, 256 bytes)
+//   ❌ ERAM (0xFE0B0300) — blocked by driver's address range check
+//   ❌ SMA2 (0xFE0B0A00) — blocked by driver's address range check
+
+/// Named pipe path for our custom IoTService.exe IPC broker.
+#[cfg(windows)]
+const ECRAM_PIPE_NAME: &str = r"\\.\pipe\ecram_service";
+
+/// Response from the custom IoTService.exe pipe server.
+#[derive(Debug, serde::Deserialize)]
+struct PipeResponse {
+    ok: bool,
+    #[serde(default)]
+    data: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Read ECRAM via the custom IoTService.exe named pipe broker.
+///
+/// This is the preferred path when the custom IoTService.exe is installed,
+/// as it avoids the driver's process-name security check entirely.
+///
+/// Returns `None` if the pipe server is not running or the request fails.
+#[cfg(windows)]
+pub fn read_ecram_via_pipe(phys_addr: u64, byte_count: usize) -> Option<Vec<u8>> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let pipe_name = ECRAM_PIPE_NAME;
+
+    // Build the wide path for CreateFileW
+    let path_w: Vec<u16> = std::ffi::OsStr::new(pipe_name)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    // Open the named pipe
+    let handle = unsafe {
+        windows::Win32::Storage::FileSystem::CreateFileW(
+            windows::core::PCWSTR(path_w.as_ptr()),
+            (windows::Win32::Foundation::GENERIC_READ | windows::Win32::Foundation::GENERIC_WRITE)
+                .0,
+            windows::Win32::Storage::FileSystem::FILE_SHARE_READ
+                | windows::Win32::Storage::FileSystem::FILE_SHARE_WRITE,
+            None,
+            windows::Win32::Storage::FileSystem::OPEN_EXISTING,
+            windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
+            windows::Win32::Foundation::HANDLE::default(),
+        )
+        .ok()?
+    };
+
+    if handle == windows::Win32::Foundation::INVALID_HANDLE_VALUE {
+        return None;
+    }
+
+    // Build JSON request
+    let request = serde_json::json!({
+        "op": "read",
+        "addr": format!("0x{phys_addr:08X}"),
+        "size": byte_count
+    })
+    .to_string();
+
+    // Write request
+    let req_bytes = request.as_bytes();
+    let mut written = 0u32;
+    unsafe {
+        windows::Win32::Storage::FileSystem::WriteFile(
+            handle,
+            Some(req_bytes),
+            Some(&mut written),
+            None,
+        )
+        .ok()?;
+    }
+
+    // Read response
+    let mut response_buf = [0u8; 4096];
+    let mut total_read = 0usize;
+    loop {
+        if total_read >= response_buf.len() {
+            break;
+        }
+        let mut bytes_read = 0u32;
+        let result = unsafe {
+            windows::Win32::Storage::FileSystem::ReadFile(
+                handle,
+                Some(&mut response_buf[total_read..]),
+                Some(&mut bytes_read),
+                None,
+            )
+        };
+        if result.is_err() || bytes_read == 0 {
+            break;
+        }
+        total_read += bytes_read as usize;
+        let s = String::from_utf8_lossy(&response_buf[..total_read]);
+        if s.trim_end().ends_with('}') {
+            break;
+        }
+    }
+
+    unsafe {
+        windows::Win32::Foundation::CloseHandle(handle).ok();
+    }
+
+    if total_read == 0 {
+        return None;
+    }
+
+    let response_str = String::from_utf8_lossy(&response_buf[..total_read]);
+    let resp: PipeResponse = serde_json::from_str(response_str.trim()).ok()?;
+
+    if !resp.ok {
+        log::debug!(
+            target: "hw::ecram::pipe",
+            "Pipe read failed: {}",
+            resp.error.unwrap_or_default()
+        );
+        return None;
+    }
+
+    // Decode hex data
+    let hex = resp.data?;
+    let data: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect();
+
+    if data.len() == byte_count {
+        Some(data)
+    } else {
+        log::warn!(
+            target: "hw::ecram::pipe",
+            "Pipe read returned {} bytes, expected {}",
+            data.len(),
+            byte_count
+        );
+        Some(data)
+    }
+}
+
+/// Check if the custom IoTService.exe pipe broker is available.
+#[cfg(windows)]
+pub fn is_pipe_broker_available() -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
+    let path_w: Vec<u16> = std::ffi::OsStr::new(ECRAM_PIPE_NAME)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    let handle = unsafe {
+        windows::Win32::Storage::FileSystem::CreateFileW(
+            windows::core::PCWSTR(path_w.as_ptr()),
+            (windows::Win32::Foundation::GENERIC_READ | windows::Win32::Foundation::GENERIC_WRITE)
+                .0,
+            windows::Win32::Storage::FileSystem::FILE_SHARE_READ
+                | windows::Win32::Storage::FileSystem::FILE_SHARE_WRITE,
+            None,
+            windows::Win32::Storage::FileSystem::OPEN_EXISTING,
+            windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
+            windows::Win32::Foundation::HANDLE::default(),
+        )
+    };
+
+    match handle {
+        Ok(h) if h != windows::Win32::Foundation::INVALID_HANDLE_VALUE => {
+            unsafe {
+                windows::Win32::Foundation::CloseHandle(h).ok();
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn read_ecram_via_pipe(_phys_addr: u64, _byte_count: usize) -> Option<Vec<u8>> {
+    None
+}
+
+#[cfg(not(windows))]
+pub fn is_pipe_broker_available() -> bool {
+    false
 }
 
 #[cfg(test)]

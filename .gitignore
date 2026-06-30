@@ -38,6 +38,10 @@ npm-debug.log*
 
 # Windows
 Thumbs.db
+
+# Stray powercfg output files (accidentally created with - flag)
+/-
+src-tauri/-
 ehthumbs.db
 Desktop.ini
 

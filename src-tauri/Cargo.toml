@@ -1,6 +1,6 @@
 [package]
 name = "micontrol"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 default-run = "micontrol"
 
@@ -12,6 +12,20 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "micontrol"
 path = "src/main.rs"
 
+[[bin]]
+name = "wmaa_scan"
+path = "src/bin/wmaa_scan.rs"
+required-features = ["test-bin"]
+
+[[bin]]
+name = "wmaa_scan_focused"
+path = "src/bin/wmaa_scan_focused.rs"
+required-features = ["test-bin"]
+
+[[bin]]
+name = "ecram_service"
+path = "src/bin/ecram_service.rs"
+
 [features]
 default = []
 test-bin = []
@@ -19,6 +33,7 @@ test-bin = []
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-ico"] }
 tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

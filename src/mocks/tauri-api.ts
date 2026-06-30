@@ -65,6 +65,8 @@ const BATTERY_INFO: BatteryInfo = {
   full_capacity_mwh: 65800,
   manufacturer: 'Xiaomi',
   device_name: 'LP-L9N80V',
+  serial_number: 'BATT-001234',
+  chemistry: 'Li-ion',
   temperature_celsius: 32.5,
   time_remaining_minutes: 187,
   time_to_full_minutes: null,

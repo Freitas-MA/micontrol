@@ -13,6 +13,7 @@ type HotkeyAction =
   | { type: 'launch_app'; path: string; args: string[] }
   | { type: 'remap_to_key'; vk: number; extended: boolean }
   | { type: 'set_performance_mode'; mode: string }
+  | { type: 'cycle_performance_mode'; modes: string[] }
   | { type: 'toggle_ai_brightness' }
   | { type: 'media_control'; action: string }
   | { type: 'script'; interpreter: string; path: string; args: string[] };
@@ -52,6 +53,7 @@ function KeyBindingRow({
   const appPath = binding.action.type === 'launch_app' ? binding.action.path : '';
   const remapVk = binding.action.type === 'remap_to_key' ? binding.action.vk : 0xa3;
   const perfMode = binding.action.type === 'set_performance_mode' ? binding.action.mode : 'balance';
+  const cycleModes = binding.action.type === 'cycle_performance_mode' ? binding.action.modes : [];
   const mediaAction = binding.action.type === 'media_control' ? binding.action.action : 'volume_up';
   const scriptInterp = binding.action.type === 'script' ? binding.action.interpreter || '' : '';
   const scriptPath = binding.action.type === 'script' ? binding.action.path : '';
@@ -105,6 +107,12 @@ function KeyBindingRow({
         ...binding,
         enabled: autoEnabled,
         action: { type: 'set_performance_mode', mode: 'balance' },
+      });
+    } else if (type === 'cycle_performance_mode') {
+      onChange({
+        ...binding,
+        enabled: autoEnabled,
+        action: { type: 'cycle_performance_mode', modes: ['balance', 'turbo'] },
       });
     } else if (type === 'toggle_ai_brightness') {
       onChange({ ...binding, enabled: autoEnabled, action: { type: 'toggle_ai_brightness' } });
@@ -282,6 +290,7 @@ function KeyBindingRow({
           <option value="open_main_window">{t('keyboard.actionOpenMainWindow')}</option>
           <option value="remap_to_key">{t('keyboard.actionRemapToKey')}</option>
           <option value="set_performance_mode">{t('keyboard.actionSetPerformanceMode')}</option>
+          <option value="cycle_performance_mode">{t('keyboard.actionCyclePerformanceMode')}</option>
           <option value="toggle_ai_brightness">{t('keyboard.actionToggleAiBrightness')}</option>
           <option value="media_control">{t('keyboard.actionMediaControl')}</option>
           <option value="open_url">{t('keyboard.actionOpenUrl')}</option>
@@ -327,6 +336,53 @@ function KeyBindingRow({
               </option>
             ))}
           </select>
+        )}
+        {actionType === 'cycle_performance_mode' && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              alignItems: 'center',
+            }}
+          >
+            {PERFORMANCE_MODES.map((m) => {
+              const checked = cycleModes.includes(m.value);
+              return (
+                <label
+                  key={m.value}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+                    background: checked ? 'var(--surface-2)' : 'transparent',
+                    color: checked ? 'var(--accent)' : 'var(--text-muted)',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      const next = e.target.checked
+                        ? [...cycleModes, m.value]
+                        : cycleModes.filter((v) => v !== m.value);
+                      onChange({
+                        ...binding,
+                        action: { type: 'cycle_performance_mode', modes: next },
+                      });
+                    }}
+                    style={{ margin: 0 }}
+                  />
+                  {m.label}
+                </label>
+              );
+            })}
+          </div>
         )}
         {actionType === 'media_control' && (
           <select

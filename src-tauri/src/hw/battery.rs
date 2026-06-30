@@ -24,6 +24,8 @@ pub struct BatteryInfo {
     pub full_capacity_mwh: u32,
     pub manufacturer: String,
     pub device_name: String,
+    pub serial_number: String,
+    pub chemistry: String,
     pub temperature_celsius: Option<f64>,
     pub time_remaining_minutes: Option<i32>,
     /// Estimated minutes until battery is fully charged. None when not charging.
@@ -47,6 +49,8 @@ struct BatteryStaticData {
     full_capacity_mwh: u64,
     manufacturer: String,
     device_name: String,
+    serial_number: String,
+    chemistry: String,
     cycle_count: u32,
     temperature_raw: Option<u32>,
 }
@@ -90,6 +94,17 @@ pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
                 device_name: wmi_extract::extract_string(&statics, "DeviceName")
                     .map(|s| s.trim().to_string())
                     .unwrap_or_else(|| "BX70".to_string()),
+                serial_number: wmi_extract::extract_string(&statics, "SerialNumber")
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
+                chemistry: wmi_extract::extract_u32(&statics, "Chemistry")
+                    .map(|c| {
+                        // Chemistry is stored as a 4-byte ASCII value packed into a uint32
+                        let bytes = c.to_le_bytes();
+                        let s = String::from_utf8_lossy(&bytes);
+                        s.trim_end_matches('\0').to_string()
+                    })
+                    .unwrap_or_else(|| "LiP".to_string()),
                 cycle_count: wmi_extract::extract_u32_or(&statics, "CycleCount", 0),
                 temperature_raw: wmi_extract::extract_u32(&statics, "Temperature"),
             })
@@ -104,6 +119,8 @@ pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
                     full_capacity_mwh: 68224,
                     manufacturer: "COSMX".to_string(),
                     device_name: "BX70".to_string(),
+                    serial_number: String::new(),
+                    chemistry: "LiP".to_string(),
                     cycle_count: 0,
                     temperature_raw: None,
                 }
@@ -111,7 +128,45 @@ pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
         }
     });
 
-    let info = wmi_cache::with_wmi(|wmi| {
+    // ═══════════════════════════════════════════════════════════════════════
+    // WORKING FORM — DO NOT MODIFY
+    //
+    // The BatterySnapshot pattern is CRITICAL to avoid RefCell panics.
+    // wmi_cache::with_wmi() uses RefCell::borrow_mut() internally. If any
+    // function called inside the closure also calls with_wmi(), the nested
+    // borrow_mut() will panic with "RefCell already borrowed".
+    //
+    // Pattern:
+    //   1. Collect ALL WMI data inside a single with_wmi closure into a
+    //      BatterySnapshot struct (no nested with_wmi calls allowed).
+    //   2. Exit the closure.
+    //   3. Call probe_ac_input_power_throttled() OUTSIDE the closure — it
+    //      internally calls wmi_ec::read_adapter_power() which calls
+    //      wmi_read() which calls with_wmi() again.
+    //
+    // Breaking this pattern will cause a runtime panic when the battery
+    // is plugged in and the adapter power probe fires.
+    // ═══════════════════════════════════════════════════════════════════════
+    struct BatterySnapshot {
+        level: u8,
+        is_charging: bool,
+        is_plugged: bool,
+        health_percent: f64,
+        cycle_count: u32,
+        designed_capacity_mwh: u32,
+        full_capacity_mwh: u32,
+        manufacturer: String,
+        device_name: String,
+        serial_number: String,
+        chemistry: String,
+        temperature_celsius: Option<f64>,
+        time_remaining_minutes: Option<i32>,
+        time_to_full_minutes: Option<i32>,
+        charge_rate_mw: i32,
+        voltage_mv: u32,
+    }
+
+    let snapshot = wmi_cache::with_wmi(|wmi| {
         // BatteryStatus (dynamic data only)
         let statuses: Vec<HashMap<String, wmi::Variant>> = wmi
             .raw_query("SELECT * FROM BatteryStatus")
@@ -124,6 +179,7 @@ pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
         let voltage = wmi_extract::extract_u32(&status, "Voltage")
             .map(|v| v as f64 / 1000.0)
             .unwrap_or(0.0);
+        let voltage_mv = wmi_extract::extract_u32_or(&status, "Voltage", 0);
 
         let is_charging = charging_rate > 0;
         let is_plugged = wmi_extract::extract_bool(&status, "PowerOnline").unwrap_or(false);
@@ -141,6 +197,8 @@ pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
         let designed_mah = battery_static.designed_capacity_mwh as u32;
         let manufacturer = battery_static.manufacturer.clone();
         let device_name = battery_static.device_name.clone();
+        let serial_number = battery_static.serial_number.clone();
+        let chemistry = battery_static.chemistry.clone();
         let cycle_count = if battery_static.cycle_count > 0 {
             battery_static.cycle_count
         } else {
@@ -188,24 +246,7 @@ pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
             None
         };
 
-        // Try to read AC adapter input power from ECRAM (IoTDriver.sys)
-        let ac_input_power_mw = if is_plugged {
-            log::debug!(target: "hw::battery", "charger is plugged; attempting ECRAM AC power read");
-            probe_ac_input_power_throttled()
-        } else {
-            log::debug!(target: "hw::battery", "charger is unplugged; skipping ECRAM AC power read");
-            clear_ac_power_probe_cache();
-            None
-        };
-
-        log::debug!(
-            target: "hw::battery",
-            "battery info ready: ac_input_power_mw={:?} elapsed_ms={}",
-            ac_input_power_mw,
-            started.elapsed().as_millis()
-        );
-
-        Ok(BatteryInfo {
+        Ok(BatterySnapshot {
             level,
             is_charging,
             is_plugged,
@@ -215,15 +256,54 @@ pub fn get_battery_info() -> HardwareResult<BatteryInfo> {
             full_capacity_mwh: full_cap_mah,
             manufacturer,
             device_name,
+            serial_number,
+            chemistry,
             temperature_celsius,
             time_remaining_minutes,
             time_to_full_minutes,
             charge_rate_mw: charging_rate,
-            voltage_mv: wmi_extract::extract_u32_or(&status, "Voltage", 0),
-            ac_input_power_mw,
+            voltage_mv,
         })
-    });
-    info
+    })?;
+
+    // WORKING FORM — DO NOT MODIFY: AC adapter power read MUST be outside
+    // the with_wmi closure. probe_ac_input_power_throttled() → read_adapter_power()
+    // → wmi_read() → wmi_cache::with_wmi() — nested borrow_mut() would panic.
+    let ac_input_power_mw = if snapshot.is_plugged {
+        log::debug!(target: "hw::battery", "charger is plugged; attempting WMI AC power read");
+        probe_ac_input_power_throttled()
+    } else {
+        log::debug!(target: "hw::battery", "charger is unplugged; skipping AC power read");
+        clear_ac_power_probe_cache();
+        None
+    };
+
+    log::debug!(
+        target: "hw::battery",
+        "battery info ready: ac_input_power_mw={:?} elapsed_ms={}",
+        ac_input_power_mw,
+        started.elapsed().as_millis()
+    );
+
+    Ok(BatteryInfo {
+        level: snapshot.level,
+        is_charging: snapshot.is_charging,
+        is_plugged: snapshot.is_plugged,
+        health_percent: snapshot.health_percent,
+        cycle_count: snapshot.cycle_count,
+        designed_capacity_mwh: snapshot.designed_capacity_mwh,
+        full_capacity_mwh: snapshot.full_capacity_mwh,
+        manufacturer: snapshot.manufacturer,
+        device_name: snapshot.device_name,
+        serial_number: snapshot.serial_number,
+        chemistry: snapshot.chemistry,
+        temperature_celsius: snapshot.temperature_celsius,
+        time_remaining_minutes: snapshot.time_remaining_minutes,
+        time_to_full_minutes: snapshot.time_to_full_minutes,
+        charge_rate_mw: snapshot.charge_rate_mw,
+        voltage_mv: snapshot.voltage_mv,
+        ac_input_power_mw,
+    })
 }
 
 #[cfg(windows)]
@@ -262,7 +342,9 @@ fn probe_ac_input_power_throttled() -> Option<i32> {
         }
     }
 
-    let value = crate::hw::ecram::try_get_ac_power_mw();
+    let value = crate::hw::wmi_ec::read_adapter_power()
+        .ok()
+        .map(|watts| (watts as i32) * 1000); // W → mW
 
     // S24-006: Use lock_or_recover for consistent poison recovery.
     {

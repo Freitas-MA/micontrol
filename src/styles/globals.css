@@ -356,9 +356,34 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
+  scrollbar-color: var(--accent-glow) transparent;
   transition:
     background var(--t-slow) var(--ease),
     border-color var(--t-slow) var(--ease);
+}
+
+/* ── Sidebar (tabs) scrollbar — matches app glassmorphism design ──────── */
+/* WORKING FORM — DO NOT MODIFY: Sidebar scrollbar uses accent-glow color  */
+/* to match the app's glassmorphism design. Width is 3px (thin, elegant).  */
+/* Track is transparent with 8px vertical margin for breathing room.        */
+/* Thumb uses --accent-glow, hover transitions to --accent.                 */
+.sidebar::-webkit-scrollbar {
+  width: 3px;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--accent-glow);
+  border-radius: 99px;
+  transition: background var(--t-fast) var(--ease);
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+.sidebar::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .sidebar-logo {

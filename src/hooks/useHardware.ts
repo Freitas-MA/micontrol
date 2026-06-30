@@ -40,6 +40,8 @@ export type {
   BindStatusInfo,
   WiFiStatusInfo,
   WiFiItemInfo,
+  HqWmiResponse,
+  ThermalZoneInfo,
 } from '../types/hardware';
 
 import type {
@@ -61,6 +63,10 @@ import type {
   IotDeviceInfo,
   IotWifiList,
   IotEvent,
+  WmaaResponse,
+  EcSensorData,
+  HqWmiResponse,
+  ThermalZoneInfo,
 } from '../types/hardware';
 
 // ── Hardware hook ────────────────────────────────────────────────────────────
@@ -742,6 +748,118 @@ export function useHardware() {
     }
   }, []);
 
+  // ── WMAA / WMI MiInterface (elevated bridge) ──────────────────────────────
+  // Direct EC access via WMI MiInterface — bypasses IoTDriver process check.
+  // All commands require admin privileges (auto-elevated through the bridge).
+
+  const wmiEcRead = useCallback(async (fun2: number, fun3: number) => {
+    return invoke<WmaaResponse>('wmi_ec_read', { fun2, fun3 });
+  }, []);
+
+  const wmiEcWrite = useCallback(async (fun2: number, fun3: number, fun4: number) => {
+    return invoke<WmaaResponse>('wmi_ec_write', { fun2, fun3, fun4 });
+  }, []);
+
+  const wmiEcGetPerformanceMode = useCallback(async () => {
+    return invoke<string>('wmi_ec_get_performance_mode');
+  }, []);
+
+  const wmiEcSetPerformanceMode = useCallback(async (mode: number) => {
+    await invoke('wmi_ec_set_performance_mode', { mode });
+  }, []);
+
+  const wmiEcReadBatteryHealth = useCallback(async () => {
+    return invoke<number>('wmi_ec_read_battery_health');
+  }, []);
+
+  const wmiEcReadAdapterPower = useCallback(async () => {
+    return invoke<number>('wmi_ec_read_adapter_power');
+  }, []);
+
+  const wmiEcReadSensorData = useCallback(async () => {
+    return invoke<EcSensorData>('wmi_ec_read_sensor_data');
+  }, []);
+
+  const wmiEcSetBrightnessData = useCallback(async (level: number) => {
+    await invoke('wmi_ec_set_brightness_data', { level });
+  }, []);
+
+  const wmiEcSetSagvMode = useCallback(async (mode: number) => {
+    await invoke('wmi_ec_set_sagv_mode', { mode });
+  }, []);
+
+  const wmiEcSetPl1Flag = useCallback(async (enabled: boolean) => {
+    await invoke('wmi_ec_set_pl1_flag', { enabled });
+  }, []);
+
+  const wmiEcSetEpofFlag = useCallback(async (enabled: boolean) => {
+    await invoke('wmi_ec_set_epof_flag', { enabled });
+  }, []);
+
+  const wmiEcSetMiUsageType = useCallback(async (enabled: boolean) => {
+    await invoke('wmi_ec_set_mi_usage_type', { enabled });
+  }, []);
+
+  const wmiEcSetWmidType = useCallback(async (val: number) => {
+    await invoke('wmi_ec_set_wmid_type', { val });
+  }, []);
+
+  const wmiEcSetLidOpenType = useCallback(async (val: number) => {
+    await invoke('wmi_ec_set_lid_open_type', { val });
+  }, []);
+
+  const wmiEcSetRemovableType = useCallback(async (val: number) => {
+    await invoke('wmi_ec_set_removable_type', { val });
+  }, []);
+
+  const wmiEcSetAutoIllumination = useCallback(async (enabled: boolean) => {
+    await invoke('wmi_ec_set_auto_illumination', { enabled });
+  }, []);
+
+  const wmiEcSetLabelMode = useCallback(async (enabled: boolean) => {
+    await invoke('wmi_ec_set_label_mode', { enabled });
+  }, []);
+
+  // ── HQWmiCommonInterface (BIOS control via WMI) ──────────────────────────
+
+  const hqSetPerformanceMode = useCallback(async (req: string) => {
+    return await invoke<HqWmiResponse>('hq_set_performance_mode', { req });
+  }, []);
+
+  const hqChangeBootOption = useCallback(async (req: string) => {
+    return await invoke<HqWmiResponse>('hq_change_boot_option', { req });
+  }, []);
+
+  const hqLoadDefault = useCallback(async (req: string) => {
+    return await invoke<HqWmiResponse>('hq_load_default', { req });
+  }, []);
+
+  const hqS5RtcWakeEnable = useCallback(async (req: string) => {
+    return await invoke<HqWmiResponse>('hq_s5_rtc_wake_enable', { req });
+  }, []);
+
+  const hqEnablePxeBoot = useCallback(async (req: string) => {
+    return await invoke<HqWmiResponse>('hq_enable_pxe_boot', { req });
+  }, []);
+
+  const hqSetWifiCountryCode = useCallback(async (req: string) => {
+    return await invoke<HqWmiResponse>('hq_set_wifi_country_code', { req });
+  }, []);
+
+  const hqSetShippingCountryCode = useCallback(async (req: string) => {
+    return await invoke<HqWmiResponse>('hq_set_shipping_country_code', { req });
+  }, []);
+
+  // ── Thermal Zone (ACPI temperature) ──────────────────────────────────────
+
+  const getThermalZones = useCallback(async () => {
+    return await invoke<ThermalZoneInfo[]>('get_thermal_zones');
+  }, []);
+
+  const getPrimaryThermalZone = useCallback(async () => {
+    return await invoke<ThermalZoneInfo>('get_primary_thermal_zone');
+  }, []);
+
   useEffect(() => {
     void refreshHardwareProfile();
   }, [refreshHardwareProfile]);
@@ -760,6 +878,7 @@ export function useHardware() {
   const systemState = useMemo(() => systemInfo, [systemInfo]);
 
   // Flat wrapper: keeps the old interface working for existing callers
+  /* eslint-disable react-hooks/exhaustive-deps -- stable callbacks; listing all would be noise */
   return useMemo(
     () => ({
       ...fanState,
@@ -865,6 +984,36 @@ export function useHardware() {
       getAudioState,
       setMasterVolume,
       setMasterMute,
+      // WMAA / WMI MiInterface (elevated)
+      wmiEcRead,
+      wmiEcWrite,
+      wmiEcGetPerformanceMode,
+      wmiEcSetPerformanceMode,
+      wmiEcReadBatteryHealth,
+      wmiEcReadAdapterPower,
+      wmiEcReadSensorData,
+      wmiEcSetBrightnessData,
+      wmiEcSetSagvMode,
+      wmiEcSetPl1Flag,
+      wmiEcSetEpofFlag,
+      wmiEcSetMiUsageType,
+      wmiEcSetWmidType,
+      wmiEcSetLidOpenType,
+      wmiEcSetRemovableType,
+      wmiEcSetAutoIllumination,
+      wmiEcSetLabelMode,
+      // HQWmiCommonInterface
+      hqSetPerformanceMode,
+      hqChangeBootOption,
+      hqLoadDefault,
+      hqS5RtcWakeEnable,
+      hqEnablePxeBoot,
+      hqSetWifiCountryCode,
+      hqSetShippingCountryCode,
+      // Thermal zone
+      getThermalZones,
+      getPrimaryThermalZone,
     ],
   );
+  /* eslint-enable react-hooks/exhaustive-deps */
 }

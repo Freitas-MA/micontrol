@@ -71,6 +71,7 @@
     "actionOpenUrl": "Ouvrir une URL dans le navigateur",
     "actionLaunchApp": "Lancer une application",
     "actionSetPerformanceMode": "Définir le mode de performance",
+    "actionCyclePerformanceMode": "Parcourir les modes de performance",
     "actionToggleAiBrightness": "Basculer la luminosité IA",
     "actionMediaControl": "Contrôle média/volume",
     "actionScript": "Exécuter un script",

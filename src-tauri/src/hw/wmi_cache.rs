@@ -108,6 +108,16 @@ where
 /// Execute a closure with the cached `ROOT\WMI` connection, with one retry.
 ///
 /// Same semantics as [`with_cimv2`].
+///
+/// WORKING FORM — DO NOT MODIFY: This function uses `cell.borrow_mut()` which
+/// holds a RefCell borrow for the entire duration of the closure. If any code
+/// inside the closure calls `with_wmi()` or `with_cimv2()` again (nested call),
+/// the second `borrow_mut()` will panic with "RefCell already borrowed".
+///
+/// Callers MUST NOT nest WMI calls. If you need data from multiple WMI sources,
+/// collect all data from one source into a struct, exit the closure, then call
+/// the second source separately. See `battery.rs::get_battery_info()` for the
+/// correct pattern (BatterySnapshot struct).
 pub fn with_wmi<F, T>(f: F) -> HardwareResult<T>
 where
     F: Fn(&WMIConnection) -> anyhow::Result<T>,

@@ -13,6 +13,7 @@
 
 - **Hardware Control** — Manage fan curves, battery charge thresholds, display brightness & HDR, audio volume & devices, keyboard backlight, and touchpad settings.
 - **IoT Service Integration** — Communicate with the embedded controller via EC RAM access, handle hotkeys, and cast the screen wirelessly.
+- **EC RAM Access** — Direct embedded controller RAM read/write via a custom `IoTService.exe` replacement binary that proxies IOCTLs to the Xiaomi `IoTDriver.sys` kernel driver. Uses named pipe IPC (`\\.\pipe\ecram_service`) with JSON protocol. See [RE Analysis Report](docs/RE_ANALYSIS_REPORT.md) for full reverse engineering details.
 - **Driver Management** — Scan, install, and update hardware drivers with guided workflows.
 - **System Info Dashboard** — Real-time CPU, GPU, RAM, and storage monitoring at a glance.
 - **AI-Powered Analysis** — Optional AI system advisor that analyses your hardware logs and provides personalised recommendations for thermal management, performance modes, and battery health. Supports OpenAI, Ollama, and any OpenAI-compatible provider. See [AI Features Documentation](docs/ai-features.md) for details on data handling, privacy, and supported models.
@@ -94,15 +95,40 @@ miPC is a Tauri v2 desktop application with a React 19 frontend and a Rust backe
 │  │Commands  │  │  hw/* (HAL)  │  │Elev Bridge│  │
 │  └──────────┘  └──────┬───────┘  └───────────┘  │
 │                       │                          │
-│          WMI ─ Registry ─ HID ─ EC RAM           │
+│    WMI ─ Registry ─ HID ─ EC RAM (pipe)          │
+│                       │                          │
+│              Named Pipe IPC                       │
+│           \\.\pipe\ecram_service                  │
+├───────────────────────┼──────────────────────────┤
+│           Custom IoTService.exe                   │
+│         (IOCTL Proxy to IoTDriver.sys)            │
 ├───────────────────────┼──────────────────────────┤
 │                  Windows 10/11                    │
 └─────────────────────────────────────────────────┘
 ```
 
 - **Frontend** — React 19 with TypeScript, Vite, and Tailwind CSS. Tab-based UI with lazy-loaded pages.
-- **Backend** — Rust modules organized by hardware domain (`hw/battery.rs`, `hw/display.rs`, etc.), exposed via Tauri command handlers.
+- **Backend** — Rust modules organized by hardware domain (`hw/battery.rs`, `hw/display.rs`, `hw/ecram.rs`, `hw/fan.rs`, `hw/wmi_ec.rs`, etc.), exposed via Tauri command handlers.
 - **Elevated Bridge** — A secure subprocess for privileged operations (driver installs, EC RAM access). Every request is HMAC-signed, nonce-protected against replay, and logged to an integrity-verified audit trail.
+- **EC RAM Service** — A custom `IoTService.exe` replacement binary (`src-tauri/src/bin/ecram_service.rs`) that proxies IOCTLs to the Xiaomi `IoTDriver.sys` kernel driver. Communicates with MiControl via named pipe IPC (`\\.\pipe\ecram_service`, JSON protocol). Required because the driver validates the calling process name and directory. See [RE Analysis Report](docs/RE_ANALYSIS_REPORT.md) for details.
+
+---
+
+## Documentation
+
+| Document                                                           | Description                                                                                                                                               |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [RE Analysis Report](docs/RE_ANALYSIS_REPORT.md)                   | Complete reverse engineering of IoTDriver.sys & IoTService.exe — IOCTLs, buffer layout, security check, allowed address ranges, custom replacement binary |
+| [Hardware Investigation](docs/HARDWARE_INVESTIGATION.md)           | Consolidated hardware findings — ACPI DSDT, WMI WMAA, EC RAM field map, hotkey events, IoTService IPC protocol                                            |
+| [IoTService RE Analysis (Phase 1)](docs/iotservice-re-analysis.md) | Ghidra strings analysis of IoTService.exe — IPC commands, pipe protocol, source file mapping                                                              |
+| [Architecture](docs/architecture.md)                               | System architecture overview, HAL module inventory, EC RAM access architecture, data flow                                                                 |
+| [Frontend Architecture](docs/frontend-architecture.md)             | React 19 + TypeScript + Vite frontend design, component hierarchy, hooks, i18n                                                                            |
+| [Adding a Hardware Feature](docs/adding-a-hardware-feature.md)     | Step-by-step guide for adding new HAL modules, includes WORKING FORM guidelines                                                                           |
+| [AI Features](docs/ai-features.md)                                 | AI system advisor — data handling, privacy, supported models (OpenAI, Ollama)                                                                             |
+| [Release Process](docs/release.md)                                 | Build, signing, publication, and EC RAM Service deployment                                                                                                |
+| [Crash Reporting](docs/crash-reporting.md)                         | Sentry integration, privacy controls, consent-gated reporting                                                                                             |
+| [Privacy Policy Versioning](docs/privacy-policy-versioning.md)     | Policy version tracking, consent audit log, re-consent flow                                                                                               |
+| [Stability Report v4](docs/STABILITY_REPORT_v4.md)                 | Multi-agent audit — security, architecture, UI/UX, performance, AI responsibility                                                                         |
 
 ---
 

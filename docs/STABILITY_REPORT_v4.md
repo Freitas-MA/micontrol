@@ -1,5 +1,7 @@
 # MiControl — Stability Report v4
 
+> **Note (30/06/2026):** This audit snapshot predates the custom IoTService.exe replacement binary and pipe client integration. Findings related to `ecram.rs` and `iotservice.rs` may have been partially addressed by the new architecture. For current architecture, see [RE_ANALYSIS_REPORT.md](./RE_ANALYSIS_REPORT.md).
+
 **Date:** 2026-06-25  
 **Auditor:** Automated multi-agent audit (3 parallel subagents — Security, Architecture, DevOps+Performance+UI/UX+AI Responsibility)  
 **Scope:** Full codebase — security, architecture, stability, UI/UX, performance, AI responsibility, DevOps  

@@ -7,7 +7,7 @@ mod commands;
 mod debug_log;
 mod elev_bridge;
 pub mod elevated;
-mod hw;
+pub mod hw;
 mod state;
 pub mod util;
 
@@ -19,13 +19,20 @@ use commands::hardware::{
     get_iot_bind_status, get_iot_device_id, get_iot_device_info, get_iot_device_status,
     get_iot_fw_version, get_iot_model, get_iot_region_hex, get_iot_wifi_by_index,
     get_iot_wifi_count, get_iot_wifi_list, get_iot_wifi_status, get_perf_debug,
-    get_performance_mode, iot_connect_wifi, iot_delete_wifi_item, iot_empty_wifi_items,
-    iot_notify_ec_event, iot_notify_event, iot_notify_power_event, iot_pipe_available,
-    iot_report_shutting_down, iot_report_suspending, iot_report_windows_ready, iot_reset_device,
-    iot_set_device_status, iot_write_wifi_item, is_elevated, read_ecram_raw, relaunch_as_admin,
-    send_iot_laptop_status, set_audio_mute, set_audio_volume, set_charging_threshold,
-    set_performance_mode, start_casting, stop_casting, wifi_connect, wifi_disconnect, wifi_scan,
-    wifi_status, write_iot_hex,
+    get_performance_mode, get_primary_thermal_zone, get_thermal_zones, hq_change_boot_option,
+    hq_enable_pxe_boot, hq_load_default, hq_s5_rtc_wake_enable, hq_set_performance_mode,
+    hq_set_shipping_country_code, hq_set_wifi_country_code, iot_connect_wifi, iot_delete_wifi_item,
+    iot_empty_wifi_items, iot_notify_ec_event, iot_notify_event, iot_notify_power_event,
+    iot_pipe_available, iot_report_shutting_down, iot_report_suspending, iot_report_windows_ready,
+    iot_reset_device, iot_set_device_status, iot_write_wifi_item, is_elevated, read_ecram_raw,
+    relaunch_as_admin, send_iot_laptop_status, set_audio_mute, set_audio_volume,
+    set_charging_threshold, set_performance_mode, start_casting, stop_casting, wifi_connect,
+    wifi_disconnect, wifi_scan, wifi_status, wmi_ec_get_performance_mode, wmi_ec_read,
+    wmi_ec_read_adapter_power, wmi_ec_read_battery_health, wmi_ec_read_sensor_data,
+    wmi_ec_set_auto_illumination, wmi_ec_set_brightness_data, wmi_ec_set_epof_flag,
+    wmi_ec_set_label_mode, wmi_ec_set_lid_open_type, wmi_ec_set_mi_usage_type,
+    wmi_ec_set_performance_mode, wmi_ec_set_pl1_flag, wmi_ec_set_removable_type,
+    wmi_ec_set_sagv_mode, wmi_ec_set_wmid_type, wmi_ec_write, write_iot_hex,
 };
 use commands::hotkeys::{
     get_detected_key, get_hotkey_config, grant_script_consent, is_hook_active, set_hotkey_config,
@@ -203,6 +210,13 @@ pub fn run() {
     // 8. Run Tauri application
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When a second instance is launched, focus the existing window instead.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::default())
@@ -331,6 +345,35 @@ pub fn run() {
             // Data export — GDPR Art.20 (S19-16)
             export_user_data,
             reveal_in_explorer,
+            // WMAA / WMI MiInterface (elevated bridge)
+            wmi_ec_read,
+            wmi_ec_write,
+            wmi_ec_get_performance_mode,
+            wmi_ec_set_performance_mode,
+            wmi_ec_read_battery_health,
+            wmi_ec_read_adapter_power,
+            wmi_ec_read_sensor_data,
+            wmi_ec_set_brightness_data,
+            wmi_ec_set_sagv_mode,
+            wmi_ec_set_pl1_flag,
+            wmi_ec_set_epof_flag,
+            wmi_ec_set_mi_usage_type,
+            wmi_ec_set_wmid_type,
+            wmi_ec_set_lid_open_type,
+            wmi_ec_set_removable_type,
+            wmi_ec_set_auto_illumination,
+            wmi_ec_set_label_mode,
+            // HQWmiCommonInterface (BIOS control)
+            hq_set_performance_mode,
+            hq_change_boot_option,
+            hq_load_default,
+            hq_s5_rtc_wake_enable,
+            hq_enable_pxe_boot,
+            hq_set_wifi_country_code,
+            hq_set_shipping_country_code,
+            // Thermal zone (ACPI temperature)
+            get_thermal_zones,
+            get_primary_thermal_zone,
         ])
         .setup(|app| {
             // Hardware discovery — load cached profile or scan on first run

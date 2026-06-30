@@ -83,3 +83,20 @@ mod tests {
 ```
 
 Add integration tests in `src-tauri/tests/` if the feature involves the elevated bridge.
+
+## Reverse Engineering & WORKING FORM
+
+If your hardware feature involves direct EC RAM access, IOCTLs, or WMI method calls that have been reverse-engineered from the Xiaomi IoTDriver.sys or IoTService.exe:
+
+1. **Document findings** — Add `// WORKING FORM — DO NOT MODIFY` comments above any code that has been verified against real hardware
+2. **Reference the RE report** — Link to `docs/RE_ANALYSIS_REPORT.md` for technical context
+3. **Do not modify verified patterns** — Buffer layouts, IOCTL codes, WMI method IDs, and API call sequences must not be changed without re-testing against the actual hardware
+4. **Test against real hardware** — Use the `ecram_service.exe` CLI mode or the ECR Debug tab (dev only) to verify
+
+See existing WORKING FORM comments in:
+
+- `src-tauri/src/hw/battery.rs` — Battery health & AC adapter WMI queries
+- `src-tauri/src/hw/ecram.rs` — ECRAM IOCTL buffer layout and pipe client
+- `src-tauri/src/hw/fan.rs` — Performance mode WMI read/write
+- `src-tauri/src/hw/wmi_ec.rs` — WMI EC read/write method calls
+- `src-tauri/src/hw/wmi_cache.rs` — WMI connection caching pattern

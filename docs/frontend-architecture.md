@@ -43,7 +43,7 @@ graph TD
     Sidebar --> NavItem5["fan"]
     Sidebar --> NavItem6["audio"]
     Sidebar --> NavItem7["cast"]
-    Sidebar --> NavItemAll["... (17 total tabs)"]
+    Sidebar --> NavItemAll["... (18 total tabs)"]
 
     TabContent --> LazyTabs["lazy() loaded tabs"]
     LazyTabs --> OverviewTab

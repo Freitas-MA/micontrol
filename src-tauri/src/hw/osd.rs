@@ -56,13 +56,17 @@ struct OsdState {
     anim_phase: Mutex<u8>,
     /// Tracks mic mute state locally.
     mic_muted: Mutex<bool>,
-    /// 0 = brightness  1 = mic-muted  2 = mic-active  3 = keyboard-light
+    /// 0 = brightness  1 = mic-muted  2 = mic-active  3 = keyboard-light  4 = performance-mode
     mode: Mutex<u8>,
     /// Unicode codepoint (u16 stored in u32) of the notification icon to draw.
     /// Used when `mode` != 0.
     notif_icon: Mutex<u32>,
     /// Current keyboard backlight level (0–10). 0xFF = unknown.
     kbl_level: Mutex<u8>,
+    /// Performance mode display name for mode 4 OSD.
+    perf_mode_name: Mutex<String>,
+    /// Performance mode accent colour for mode 4 OSD (stored as u32 COLORREF).
+    perf_accent: Mutex<u32>,
 }
 
 static OSD_STATE: OnceLock<OsdState> = OnceLock::new();
@@ -80,6 +84,8 @@ fn state() -> &'static OsdState {
         mode: Mutex::new(0),
         notif_icon: Mutex::new(0),
         kbl_level: Mutex::new(0xFF),
+        perf_mode_name: Mutex::new(String::new()),
+        perf_accent: Mutex::new(0),
     })
 }
 
@@ -209,6 +215,29 @@ pub fn show_keyboard_osd(level: u8) {
     log::info!("[osd] Keyboard backlight OSD: level={}", level);
     // Icon: U+E765 = Keyboard (Segoe MDL2)
     show_notification_osd(3, 0xE765);
+}
+
+/// Show performance mode OSD with the given mode.
+/// Safe to call from any thread.
+pub fn show_performance_osd(mode: crate::state::PerformanceMode) {
+    use crate::state::PerformanceMode;
+    let (name, icon, accent) = match mode {
+        PerformanceMode::Silence => ("Silence", 0xE7E8u16, rgb(120, 120, 120)),
+        PerformanceMode::Balance => ("Balanced", 0xE9F2u16, rgb(0, 120, 212)),
+        PerformanceMode::Turbo => ("Performance", 0xE947u16, rgb(255, 165, 0)),
+        PerformanceMode::Decepticon => ("Beast Mode", 0xE770u16, rgb(255, 60, 60)),
+        PerformanceMode::Smart => ("Smart Mode", 0xE9D9u16, rgb(100, 200, 255)),
+        PerformanceMode::LongBattery => ("Long Battery", 0xE8B7u16, rgb(80, 200, 120)),
+        PerformanceMode::SmartAcceleration => ("Smart Acceleration", 0xE9D9u16, rgb(100, 200, 255)),
+        PerformanceMode::Overdrive => ("Overdrive", 0xE770u16, rgb(255, 80, 80)),
+        PerformanceMode::OverdriveHigh => ("Overdrive High", 0xE770u16, rgb(255, 50, 50)),
+        PerformanceMode::OverdriveMax => ("Overdrive Max", 0xE770u16, rgb(255, 0, 0)),
+        PerformanceMode::SmartAdaptive => ("Smart Adaptive", 0xE9D9u16, rgb(100, 200, 255)),
+    };
+    *state().perf_mode_name.lock().unwrap() = name.to_string();
+    *state().perf_accent.lock().unwrap() = accent.0;
+    log::info!("[osd] Performance OSD: {} (icon={:#06X})", name, icon);
+    show_notification_osd(4, icon);
 }
 
 /// Internal helper — set mode+icon, post WM_OSD_NOTIF.
@@ -638,6 +667,40 @@ unsafe fn paint_notification(hwnd: HWND) {
             .encode_utf16()
             .collect();
         let _ = TextOutW(hdc, CX_R, 70, &state);
+        SelectObject(hdc, old_f3);
+        let _ = DeleteObject(hf3);
+    } else if mode == 4 {
+        // ── Performance mode ───────────────────────────────────────────────────
+        // Layout: icon on left third, mode name on right two-thirds.
+        // Same pill size as mic OSD (420 × 150).
+        const ICN_SZ: i32 = 67;
+        const CX_R: i32 = 280; // centre of right text zone
+        let accent = COLORREF(*state().perf_accent.lock().unwrap());
+        let mode_name = state().perf_mode_name.lock().unwrap().clone();
+
+        // Icon — coloured, left third, vertically centred.
+        SetTextColor(hdc, accent);
+        let hf = new_mdl2_font(ICN_SZ);
+        let old_f = SelectObject(hdc, hf);
+        let _ = TextOutW(hdc, 140, (NOTIF_H - ICN_SZ) / 2, &[icon_cp]);
+        SelectObject(hdc, old_f);
+        let _ = DeleteObject(hf);
+
+        // "Performance Mode" — font -20, muted-gray, right column.
+        SetTextColor(hdc, TEXT2_CLR);
+        let hf2 = new_segoe_font(-20, 400);
+        let old_f2 = SelectObject(hdc, hf2);
+        let lbl: Vec<u16> = "Performance Mode".encode_utf16().collect();
+        let _ = TextOutW(hdc, CX_R, 42, &lbl);
+        SelectObject(hdc, old_f2);
+        let _ = DeleteObject(hf2);
+
+        // Mode name — font -37, bold, accent colour, right column.
+        SetTextColor(hdc, accent);
+        let hf3 = new_segoe_font(-37, 700);
+        let old_f3 = SelectObject(hdc, hf3);
+        let name_u16: Vec<u16> = mode_name.encode_utf16().collect();
+        let _ = TextOutW(hdc, CX_R, 70, &name_u16);
         SelectObject(hdc, old_f3);
         let _ = DeleteObject(hf3);
     } else {

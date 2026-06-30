@@ -613,6 +613,282 @@ pub async fn stop_casting() -> Result<CastResult, ErrorResponse> {
         .map_err(ErrorResponse::from)
 }
 
+// ── WMAA / WMI MiInterface commands (elevated) ──────────────────────────────
+//
+// All WMAA commands require admin privileges and are dispatched through the
+// elevated bridge. The WMI MiInterface (MiInterface method on
+// MICommonInterface class) provides direct EC access via ACPI WMAA method,
+// bypassing the IoTDriver.sys process name check.
+
+/// Read a WMAA register via WMI MiInterface (elevated).
+///
+/// - `fun2`: Sub-command group (0x0800=EC func, 0x0A00=MI info, 0x0C00=misc, 0x1000=sensor)
+/// - `fun3`: Parameter / sub-command ID
+#[tauri::command]
+pub async fn wmi_ec_read(
+    fun2: u16,
+    fun3: u16,
+) -> Result<crate::hw::wmi_ec::WmaaResponse, ErrorResponse> {
+    let raw = elev_bridge::run_elevated(
+        "wmi_ec_read",
+        serde_json::json!({ "fun2": fun2, "fun3": fun3 }),
+    )
+    .await?;
+    serde_json::from_value(raw)
+        .map_err(|e| ErrorResponse::from(HardwareError::Other(format!("deserialize: {e}"))))
+}
+
+/// Write a WMAA register via WMI MiInterface (elevated).
+///
+/// - `fun2`: Sub-command group
+/// - `fun3`: Parameter / sub-command ID
+/// - `fun4`: Extended data (for write commands)
+#[tauri::command]
+pub async fn wmi_ec_write(
+    fun2: u16,
+    fun3: u16,
+    fun4: u32,
+) -> Result<crate::hw::wmi_ec::WmaaResponse, ErrorResponse> {
+    let raw = elev_bridge::run_elevated(
+        "wmi_ec_write",
+        serde_json::json!({ "fun2": fun2, "fun3": fun3, "fun4": fun4 }),
+    )
+    .await?;
+    serde_json::from_value(raw)
+        .map_err(|e| ErrorResponse::from(HardwareError::Other(format!("deserialize: {e}"))))
+}
+
+/// Get the current performance mode via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_get_performance_mode() -> Result<String, ErrorResponse> {
+    let raw =
+        elev_bridge::run_elevated("wmi_ec_get_performance_mode", serde_json::json!({})).await?;
+    Ok(raw.as_str().unwrap_or("Unknown").to_string())
+}
+
+/// Set the performance mode via WMAA (elevated).
+///
+/// Mode values: 5=Performance, 6=Balanced, 7=Quiet, 8=SuperQuiet, 9=UltraPerformance, 10=Extreme
+#[tauri::command]
+pub async fn wmi_ec_set_performance_mode(mode: u16) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_performance_mode",
+        serde_json::json!({ "mode": mode }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Read battery state of health (0-100%) via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_read_battery_health() -> Result<u32, ErrorResponse> {
+    let raw =
+        elev_bridge::run_elevated("wmi_ec_read_battery_health", serde_json::json!({})).await?;
+    Ok(raw.as_u64().unwrap_or(0) as u32)
+}
+
+/// Read AC adapter power in watts via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_read_adapter_power() -> Result<u32, ErrorResponse> {
+    let raw = elev_bridge::run_elevated("wmi_ec_read_adapter_power", serde_json::json!({})).await?;
+    Ok(raw.as_u64().unwrap_or(0) as u32)
+}
+
+/// Read all EC sensor data in one call via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_read_sensor_data() -> Result<crate::hw::wmi_ec::EcSensorData, ErrorResponse> {
+    let raw = elev_bridge::run_elevated("wmi_ec_read_sensor_data", serde_json::json!({})).await?;
+    serde_json::from_value(raw)
+        .map_err(|e| ErrorResponse::from(HardwareError::Other(format!("deserialize: {e}"))))
+}
+
+/// Set hotkey brightness data via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_brightness_data(level: u32) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_brightness_data",
+        serde_json::json!({ "level": level }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Set SAGV (System Agent Geyserville) mode via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_sagv_mode(mode: u32) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated("wmi_ec_set_sagv_mode", serde_json::json!({ "mode": mode }))
+        .await?;
+    Ok(())
+}
+
+/// Set PL1 power limit flag via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_pl1_flag(enabled: bool) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_pl1_flag",
+        serde_json::json!({ "enabled": enabled }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Set EPOF (emergency power off) flag via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_epof_flag(enabled: bool) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_epof_flag",
+        serde_json::json!({ "enabled": enabled }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Set MI usage type via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_mi_usage_type(enabled: bool) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_mi_usage_type",
+        serde_json::json!({ "enabled": enabled }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Set WMID type via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_wmid_type(val: u32) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated("wmi_ec_set_wmid_type", serde_json::json!({ "val": val }))
+        .await?;
+    Ok(())
+}
+
+/// Set lid open type via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_lid_open_type(val: u32) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_lid_open_type",
+        serde_json::json!({ "val": val }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Set removable type via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_removable_type(val: u32) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_removable_type",
+        serde_json::json!({ "val": val }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Set auto-adjustable illumination via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_auto_illumination(enabled: bool) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_auto_illumination",
+        serde_json::json!({ "enabled": enabled }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Set label mode via WMAA (elevated).
+#[tauri::command]
+pub async fn wmi_ec_set_label_mode(enabled: bool) -> Result<(), ErrorResponse> {
+    let _ = elev_bridge::run_elevated(
+        "wmi_ec_set_label_mode",
+        serde_json::json!({ "enabled": enabled }),
+    )
+    .await?;
+    Ok(())
+}
+
+// ── HQWmiCommonInterface (BIOS control via WMI) ────────────────────────────
+
+#[tauri::command]
+pub async fn hq_set_performance_mode(
+    req: String,
+) -> Result<crate::hw::hq_wmi::HqWmiResponse, ErrorResponse> {
+    run_blocking(move || crate::hw::hq_wmi::set_performance_mode(&req))
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn hq_change_boot_option(
+    req: String,
+) -> Result<crate::hw::hq_wmi::HqWmiResponse, ErrorResponse> {
+    run_blocking(move || crate::hw::hq_wmi::change_boot_option(&req))
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn hq_load_default(
+    req: String,
+) -> Result<crate::hw::hq_wmi::HqWmiResponse, ErrorResponse> {
+    run_blocking(move || crate::hw::hq_wmi::load_default(&req))
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn hq_s5_rtc_wake_enable(
+    req: String,
+) -> Result<crate::hw::hq_wmi::HqWmiResponse, ErrorResponse> {
+    run_blocking(move || crate::hw::hq_wmi::s5_rtc_wake_enable(&req))
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn hq_enable_pxe_boot(
+    req: String,
+) -> Result<crate::hw::hq_wmi::HqWmiResponse, ErrorResponse> {
+    run_blocking(move || crate::hw::hq_wmi::enable_pxe_boot(&req))
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn hq_set_wifi_country_code(
+    req: String,
+) -> Result<crate::hw::hq_wmi::HqWmiResponse, ErrorResponse> {
+    run_blocking(move || crate::hw::hq_wmi::set_wifi_country_code(&req))
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn hq_set_shipping_country_code(
+    req: String,
+) -> Result<crate::hw::hq_wmi::HqWmiResponse, ErrorResponse> {
+    run_blocking(move || crate::hw::hq_wmi::set_shipping_country_code(&req))
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+// ── Thermal Zone (ACPI temperature) ────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_thermal_zones() -> Result<Vec<crate::hw::thermal::ThermalZoneInfo>, ErrorResponse>
+{
+    run_blocking(crate::hw::thermal::get_thermal_zones)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn get_primary_thermal_zone() -> Result<crate::hw::thermal::ThermalZoneInfo, ErrorResponse>
+{
+    run_blocking(crate::hw::thermal::get_primary_thermal_zone)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

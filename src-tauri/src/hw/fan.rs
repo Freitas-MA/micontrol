@@ -133,6 +133,17 @@ pub fn get_fan_info() -> HardwareResult<FanInfo> {
     });
     let (mode, speed_percent) = get_fan_mode_registry().unwrap_or((FanMode::Auto, 50));
 
+    // WORKING FORM — DO NOT MODIFY: EC performance mode is read via WMI
+    // MiInterface (ACPI WMAA method), NOT via IoTDriver or ECRAM.
+    // wmi_ec::get_performance_mode() calls wmi_read(FUN2_EC_FUNC, 0) which
+    // goes through the MICommonInterface WMI class in root\WMI.
+    // This works WITHOUT IoTDriver and WITHOUT elevation (when called from
+    // the elevated bridge process).
+    let ec_mode = crate::hw::wmi_ec::get_performance_mode().ok();
+    if let Some(ec_mode) = ec_mode {
+        log::debug!(target: "hw::fan", "EC performance mode via WMI: {:?}", ec_mode);
+    }
+
     let speed_percent_actual = if speed_rpm > 0 {
         ((speed_rpm as f32 / 5000.0) * 100.0).clamp(0.0, 100.0) as u8
     } else {
@@ -151,6 +162,40 @@ pub fn get_fan_info() -> HardwareResult<FanInfo> {
 
 pub fn set_fan_mode(mode: FanMode, speed_percent: u8) -> HardwareResult<()> {
     persist_fan_registry(&mode, speed_percent)?;
+
+    // WORKING FORM — DO NOT MODIFY: EC performance mode is set via WMI
+    // MiInterface (ACPI WMAA method), NOT via IoTDriver or ECRAM.
+    // wmi_ec::set_performance_mode() calls wmi_write(FUN2_EC_FUNC, mode, 0)
+    // which goes through the MICommonInterface WMI class in root\WMI.
+    // FanMode mapping to EcPerformanceMode:
+    //   Auto/Fixed >=80% → UltraPerformance (9)
+    //   Auto/Fixed >=50% → Balanced (6)
+    //   Auto/Fixed <50%  → Quiet (7)
+    //   Off              → SuperQuiet (8)
+    let ec_mode = match mode {
+        FanMode::Auto => {
+            // Map to EC balanced/performance based on speed
+            if speed_percent >= 80 {
+                crate::hw::wmi_ec::EcPerformanceMode::UltraPerformance
+            } else if speed_percent >= 50 {
+                crate::hw::wmi_ec::EcPerformanceMode::Balanced
+            } else {
+                crate::hw::wmi_ec::EcPerformanceMode::Quiet
+            }
+        }
+        FanMode::Fixed => {
+            if speed_percent >= 80 {
+                crate::hw::wmi_ec::EcPerformanceMode::UltraPerformance
+            } else if speed_percent >= 50 {
+                crate::hw::wmi_ec::EcPerformanceMode::Balanced
+            } else {
+                crate::hw::wmi_ec::EcPerformanceMode::Quiet
+            }
+        }
+        FanMode::Off => crate::hw::wmi_ec::EcPerformanceMode::SuperQuiet,
+    };
+    crate::hw::wmi_ec::set_performance_mode(ec_mode)
+        .unwrap_or_else(|e| log::warn!("WMI EC set_performance_mode: {e}"));
 
     match mode {
         FanMode::Auto => set_fan_auto_igcl().unwrap_or_else(|e| log::warn!("IGCL fan auto: {e}")),
